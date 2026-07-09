@@ -23,64 +23,68 @@ function readFields(csvPath) {
     return { fields, textFields };
   }
 
-  const content = fs.readFileSync(csvPath, "utf8");
-  // Split by newlines
-  const lines = content.split(/\r?\n/);
+  try {
+    const content = fs.readFileSync(csvPath, "utf8");
+    // Split by newlines
+    const lines = content.split(/\r?\n/);
 
-  const langSuffixes = ["_EN", "_FR", "_DE", "_CN", "_ES", "_JP", "_KR"];
+    const langSuffixes = ["_EN", "_FR", "_DE", "_CN", "_ES", "_JP", "_KR"];
 
-  for (const line of lines) {
-    if (!line.trim()) {
-      continue;
-    }
-    // Split by comma or tab
-    const parts = line.split(/[,\t]/);
-    let val = parts[0].trim();
-    // Remove surrounding quotes (both double and single)
-    val = val.replace(/^["']|["']$/g, "").trim();
-
-    // Skip empty or header rows
-    const lowerVal = val.toLowerCase();
-    if (
-      lowerVal === "field" ||
-      lowerVal === "fields" ||
-      lowerVal === "key" ||
-      lowerVal === "keys" ||
-      val === ""
-    ) {
-      continue;
-    }
-
-    const isText = parts[1] && parts[1].trim().toLowerCase() === "text";
-
-    // If it has a language suffix, expand it to all languages
-    let matchedSuffix = null;
-    for (const suffix of langSuffixes) {
-      if (val.endsWith(suffix)) {
-        matchedSuffix = suffix;
-        break;
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue;
       }
-    }
+      // Split by comma or tab
+      const parts = line.split(/[,\t]/);
+      let val = parts[0].trim();
+      // Remove surrounding quotes (both double and single)
+      val = val.replace(/^["']|["']$/g, "").trim();
 
-    if (matchedSuffix) {
-      const prefix = val.substring(0, val.length - matchedSuffix.length);
+      // Skip empty or header rows
+      const lowerVal = val.toLowerCase();
+      if (
+        lowerVal === "field" ||
+        lowerVal === "fields" ||
+        lowerVal === "key" ||
+        lowerVal === "keys" ||
+        val === ""
+      ) {
+        continue;
+      }
+
+      const isText = parts[1] && parts[1].trim().toLowerCase() === "text";
+
+      // If it has a language suffix, expand it to all languages
+      let matchedSuffix = null;
       for (const suffix of langSuffixes) {
-        const langVal = prefix + suffix;
-        fields.add(langVal);
-        if (isText) {
-          textFields.add(langVal);
+        if (val.endsWith(suffix)) {
+          matchedSuffix = suffix;
+          break;
         }
       }
-    } else {
-      fields.add(val);
-      if (isText) {
-        textFields.add(val);
+
+      if (matchedSuffix) {
+        const prefix = val.substring(0, val.length - matchedSuffix.length);
+        for (const suffix of langSuffixes) {
+          const langVal = prefix + suffix;
+          fields.add(langVal);
+          if (isText) {
+            textFields.add(langVal);
+          }
+        }
+      } else {
+        fields.add(val);
+        if (isText) {
+          textFields.add(val);
+        }
       }
     }
-  }
 
-  console.log(`[+] Loaded ${fields.size} fields to extract (including language variants).`);
-  console.log(`[+] Found ${textFields.size} text fields for TXT generation.`);
+    console.log(`[+] Loaded ${fields.size} fields to extract (including language variants).`);
+    console.log(`[+] Found ${textFields.size} text fields for TXT generation.`);
+  } catch (e) {
+    console.error(`[!] Error: Failed reading or parsing fields CSV at ${csvPath}: ${e.message}`);
+  }
   return { fields, textFields };
 }
 
@@ -391,15 +395,24 @@ function generateTxtContent(filteredData, textFields) {
  */
 function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
   if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-    console.log(`[+] Created output directory: ${outputDir}`);
+    try {
+      fs.mkdirSync(outputDir, { recursive: true });
+      console.log(`[+] Created output directory: ${outputDir}`);
+    } catch (e) {
+      console.error(`[!] Error: Failed to create output directory ${outputDir}: ${e.message}`);
+      return;
+    }
   }
 
   // Ensure the primary downloads directory exists
   const primaryDownloads = inputDirs[0];
   if (primaryDownloads && !fs.existsSync(primaryDownloads)) {
-    fs.mkdirSync(primaryDownloads, { recursive: true });
-    console.log(`[+] Created downloads directory: ${primaryDownloads}`);
+    try {
+      fs.mkdirSync(primaryDownloads, { recursive: true });
+      console.log(`[+] Created downloads directory: ${primaryDownloads}`);
+    } catch (e) {
+      console.error(`[!] Error: Failed to create downloads directory ${primaryDownloads}: ${e.message}`);
+    }
   }
 
   // Compile all zip files from the configured directories
@@ -409,11 +422,15 @@ function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
   for (const dir of inputDirs) {
     if (fs.existsSync(dir)) {
       scannedDirs.push(dir);
-      const files = fs.readdirSync(dir);
-      for (const file of files) {
-        if (file.toLowerCase().endsWith(".zip")) {
-          zipFiles.push(path.join(dir, file));
+      try {
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+          if (file.toLowerCase().endsWith(".zip")) {
+            zipFiles.push(path.join(dir, file));
+          }
         }
+      } catch (e) {
+        console.error(`[!] Error: Failed to read directory ${dir}: ${e.message}`);
       }
     }
   }
@@ -435,105 +452,153 @@ function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
 
   for (const zipPath of zipFiles) {
     const zipFileName = path.basename(zipPath);
-    console.log(`\n[~] Processing archive: ${zipFileName}`);
+    console.log(`\n[~] Reading and processing zip archive from: ${zipPath}`);
+    
+    let inputZip;
     try {
-      const inputZip = new AdmZip(zipPath);
-      const zipEntries = inputZip.getEntries();
+      inputZip = new AdmZip(zipPath);
+    } catch (e) {
+      console.log(`    [!] Error: Failed to load zip file ${zipFileName} at ${zipPath}: ${e.message}`);
+      continue;
+    }
 
-      // Filter out only JSON files in the zip and not directories
-      const jsonEntries = zipEntries.filter(
-        (entry) =>
-          !entry.isDirectory && entry.entryName.toLowerCase().endsWith(".json"),
-      );
-      console.log(`    - Found ${jsonEntries.length} JSON file(s) inside zip.`);
+    let zipEntries;
+    try {
+      zipEntries = inputZip.getEntries();
+    } catch (e) {
+      console.log(`    [!] Error: Failed to read entries from zip file ${zipFileName}: ${e.message}`);
+      continue;
+    }
 
-      if (jsonEntries.length === 0) {
-        console.log(`    - No JSON files to process in this archive.`);
-        continue;
-      }
+    // Filter out only JSON files in the zip and not directories
+    const jsonEntries = zipEntries.filter(
+      (entry) =>
+        !entry.isDirectory && entry.entryName.toLowerCase().endsWith(".json"),
+    );
+    console.log(`    [*] Found ${jsonEntries.length} JSON file(s) inside ${zipFileName}`);
 
-      const outputZip = new AdmZip();
-      const usedNamesInZip = new Set();
-      let processedInThisZip = 0;
+    if (jsonEntries.length === 0) {
+      console.log(`    [-] No JSON files found to process in this archive.`);
+      continue;
+    }
 
-      for (const entry of jsonEntries) {
+    const outputZip = new AdmZip();
+    const usedNamesInZip = new Set();
+    let processedInThisZip = 0;
+
+    for (const entry of jsonEntries) {
+      console.log(`\n    [>] Running processing for: ${entry.entryName} (extracted from ${zipFileName})`);
+      try {
+        // Read the JSON file content from zip in memory
+        let text;
         try {
-          // Read the JSON file content from zip in memory
-          const text = entry.getData().toString("utf8");
-          let data;
-          try {
-            data = JSON.parse(text);
-          } catch (je) {
-            console.log(
-              `    [!] Error parsing JSON for ${entry.entryName}: ${je.message}`,
-            );
-            totalFailed++;
-            continue;
+          text = entry.getData().toString("utf8");
+        } catch (de) {
+          console.log(`    [!] Error: Failed to read data for ${entry.entryName}: ${de.message}`);
+          totalFailed++;
+          continue;
+        }
+
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (je) {
+          console.log(`    [!] Error: Failed to parse JSON for ${entry.entryName}: ${je.message}`);
+          totalFailed++;
+          continue;
+        }
+
+        // Filter the JSON contents
+        let filteredData;
+        try {
+          filteredData = filterData(data, fields);
+        } catch (fe) {
+          console.log(`    [!] Error: Failed during field filtering for ${entry.entryName}: ${fe.message}`);
+          totalFailed++;
+          continue;
+        }
+
+        // Get the base name of the entry
+        const baseName = path.basename(entry.entryName);
+        if (!baseName) {
+          console.log(`    [!] Error: Could not determine base name for entry ${entry.entryName}`);
+          totalFailed++;
+          continue;
+        }
+
+        // Handle duplicate filenames within this specific output zip
+        let uniqueName = baseName;
+        if (usedNamesInZip.has(uniqueName)) {
+          const ext = path.extname(baseName);
+          const name = path.basename(baseName, ext);
+          let counter = 1;
+          while (usedNamesInZip.has(`${name}_${counter}${ext}`)) {
+            counter++;
           }
+          uniqueName = `${name}_${counter}${ext}`;
+          console.log(`    [*] Duplicate name resolved. Renaming output to: ${uniqueName}`);
+        }
+        usedNamesInZip.add(uniqueName);
 
-          // Filter the JSON contents
-          const filteredData = filterData(data, fields);
-
-          // Get the base name of the entry
-          const baseName = path.basename(entry.entryName);
-          if (!baseName) {
-            continue;
-          }
-
-          // Handle duplicate filenames within this specific output zip
-          let uniqueName = baseName;
-          if (usedNamesInZip.has(uniqueName)) {
-            const ext = path.extname(baseName);
-            const name = path.basename(baseName, ext);
-            let counter = 1;
-            while (usedNamesInZip.has(`${name}_${counter}${ext}`)) {
-              counter++;
-            }
-            uniqueName = `${name}_${counter}${ext}`;
-          }
-          usedNamesInZip.add(uniqueName);
-
-          // Prepare the mapped JSON output (skipping text fields, stripping empty keys, mapping with shortcodes)
-          const jsonOutputData = prepareJsonOutput(
+        // Prepare the mapped JSON output (skipping text fields, stripping empty keys, mapping with shortcodes)
+        let jsonOutputData;
+        try {
+          jsonOutputData = prepareJsonOutput(
             filteredData,
             textFields,
             shortcodes,
           );
+        } catch (oe) {
+          console.log(`    [!] Error: Failed preparing JSON output for ${entry.entryName}: ${oe.message}`);
+          totalFailed++;
+          continue;
+        }
 
-          // Add the filtered JSON file to the output zip
+        // Add the filtered JSON file to the output zip
+        try {
           outputZip.addFile(
             uniqueName,
             Buffer.from(JSON.stringify(jsonOutputData, null, 2), "utf8"),
           );
+          console.log(`    [+] Added JSON output to target: ${uniqueName}`);
+        } catch (ae) {
+          console.log(`    [!] Error: Failed to add ${uniqueName} to output zip: ${ae.message}`);
+          totalFailed++;
+          continue;
+        }
 
-          // Generate the TXT content if there are any text fields in the data
+        // Generate the TXT content if there are any text fields in the data
+        try {
           const txtContent = generateTxtContent(filteredData, textFields);
           if (txtContent) {
             const ext = path.extname(uniqueName);
             const name = path.basename(uniqueName, ext);
             const txtName = `${name}.txt`;
             outputZip.addFile(txtName, Buffer.from(txtContent, "utf8"));
+            console.log(`    [+] Generated and added text output to target: ${txtName}`);
           }
-
-          processedInThisZip++;
-          totalProcessed++;
-        } catch (fe) {
-          console.log(
-            `    [!] Error processing ${entry.entryName}: ${fe.message}`,
-          );
-          totalFailed++;
+        } catch (te) {
+          console.log(`    [!] Error: Failed generating or adding TXT for ${entry.entryName}: ${te.message}`);
         }
-      }
 
-      if (processedInThisZip > 0) {
-        const outputZipPath = path.join(outputDir, zipFileName);
-        outputZip.writeZip(outputZipPath);
-        console.log(`    [+] Saved filtered archive to: ${outputZipPath}`);
+        processedInThisZip++;
+        totalProcessed++;
+      } catch (fe) {
+        console.log(`    [!] Unexpected error processing ${entry.entryName}: ${fe.message}`);
+        totalFailed++;
       }
-    } catch (e) {
-      console.log(
-        `    [!] Failed to process zip file ${zipFileName}: ${e.message}`,
-      );
+    }
+
+    if (processedInThisZip > 0) {
+      const outputZipPath = path.join(outputDir, zipFileName);
+      try {
+        outputZip.writeZip(outputZipPath);
+        console.log(`\n    [+] Successfully wrote output zip archive to: ${outputZipPath}`);
+      } catch (we) {
+        console.log(`    [!] Error: Failed to write output zip file to ${outputZipPath}: ${we.message}`);
+      }
+    } else {
+      console.log(`    [-] No files were successfully processed for ${zipFileName}. Output zip was not written.`);
     }
   }
 
