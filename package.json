@@ -1,0 +1,16 @@
+{
+  "name": "processpatent",
+  "version": "1.0.0",
+  "description": "Merged Patent Downloader and Field Processing Tool",
+  "type": "module",
+  "main": "getpatent.js",
+  "scripts": {
+    "start": "node getpatent.js",
+    "process": "node process.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.662.0",
+    "adm-zip": "^0.5.12",
+    "dotenv": "^16.4.5"
+  }
+}

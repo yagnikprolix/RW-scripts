@@ -1,0 +1,86 @@
+field text_field
+AC
+ACC
+AG_EN
+ALD
+ANZ_EN
+AO_EN
+AOF_EN
+APFI_EN
+APFO_EN
+APT
+AAPN
+AAPO
+AAPS
+AS_EN
+AY
+BON
+BOV
+CAN_EN
+CAS_EN
+CPC
+CPC12
+CPC4
+CPC8
+CPCO
+CPCP
+CPCV
+CR_EN
+DSEP
+DSEP_CST
+DSEP_EST
+DSEP_PST
+DSEP_VST
+DSPCT
+DSPCT_NT
+DSPCT_RGCN
+DSPCT_RGNCN
+ECLD
+EPRY
+IN_EN
+INF_EN
+IPC
+IPC12
+IPC4
+IPC8
+IPCRV
+JCL
+LCM
+LST
+PEX
+PNC
+PRC
+PRY
+PT
+PY
+SC
+USFD
+USM
+AB_CN	text
+AB_DE	text
+AB_EN	text
+AB_ES	text
+AB_FR	text
+AB_JP	text
+AB_KR	text
+CL_CN	text
+CL_DE	text
+CL_EN	text
+CL_ES	text
+CL_FR	text
+CL_JP	text
+CL_KR	text
+DESC_CN	text
+DESC_DE	text
+DESC_EN	text
+DESC_ES	text
+DESC_FR	text
+DESC_JP	text
+DESC_KR	text
+TI_CN	text
+TI_DE	text
+TI_EN	text
+TI_ES	text
+TI_FR	text
+TI_JP	text
+TI_KR	text

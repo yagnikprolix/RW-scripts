@@ -1,0 +1,10 @@
+node_modules/
+.env
+
+# Ignore files in subfolders but keep directory structure
+csv/*
+!csv/.gitkeep
+downloads/*
+!downloads/.gitkeep
+processed_patent/*
+!processed_patent/.gitkeep
