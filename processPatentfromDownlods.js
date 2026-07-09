@@ -4,6 +4,9 @@ import fs from "fs";
 import path from "path";
 import AdmZip from "adm-zip";
 import { fileURLToPath } from "url";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,10 +83,14 @@ function readFields(csvPath) {
       }
     }
 
-    console.log(`[+] Loaded ${fields.size} fields to extract (including language variants).`);
+    console.log(
+      `[+] Loaded ${fields.size} fields to extract (including language variants).`,
+    );
     console.log(`[+] Found ${textFields.size} text fields for TXT generation.`);
   } catch (e) {
-    console.error(`[!] Error: Failed reading or parsing fields CSV at ${csvPath}: ${e.message}`);
+    console.error(
+      `[!] Error: Failed reading or parsing fields CSV at ${csvPath}: ${e.message}`,
+    );
   }
   return { fields, textFields };
 }
@@ -118,7 +125,10 @@ const langSuffixes = ["_EN", "_FR", "_DE", "_CN", "_ES", "_JP", "_KR"];
 function getBaseDescription(description) {
   if (!description) return "";
   return description
-    .replace(/\b(English|French|German|Chinese|Spanish|Japanese|Korean)\b/gi, "")
+    .replace(
+      /\b(English|French|German|Chinese|Spanish|Japanese|Korean)\b/gi,
+      "",
+    )
     .replace(/\s+/g, " ")
     .replace(/\s*-\s*$/, "")
     .replace(/^\s*-\s*/, "")
@@ -235,7 +245,6 @@ function prepareJsonOutput(filteredData, textFields, shortcodes) {
 
           const mappedKey = getBaseMappedKey(base, shortcodes);
           output[mappedKey] = combined;
-
         } else {
           // Non-language field
           let value = filteredData[key];
@@ -399,7 +408,9 @@ function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
       fs.mkdirSync(outputDir, { recursive: true });
       console.log(`[+] Created output directory: ${outputDir}`);
     } catch (e) {
-      console.error(`[!] Error: Failed to create output directory ${outputDir}: ${e.message}`);
+      console.error(
+        `[!] Error: Failed to create output directory ${outputDir}: ${e.message}`,
+      );
       return;
     }
   }
@@ -411,7 +422,9 @@ function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
       fs.mkdirSync(primaryDownloads, { recursive: true });
       console.log(`[+] Created downloads directory: ${primaryDownloads}`);
     } catch (e) {
-      console.error(`[!] Error: Failed to create downloads directory ${primaryDownloads}: ${e.message}`);
+      console.error(
+        `[!] Error: Failed to create downloads directory ${primaryDownloads}: ${e.message}`,
+      );
     }
   }
 
@@ -430,7 +443,9 @@ function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
           }
         }
       } catch (e) {
-        console.error(`[!] Error: Failed to read directory ${dir}: ${e.message}`);
+        console.error(
+          `[!] Error: Failed to read directory ${dir}: ${e.message}`,
+        );
       }
     }
   }
@@ -447,18 +462,28 @@ function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
 
   console.log(`[+] Found ${zipFiles.length} zip file(s) to process.`);
 
+  // Get chunk size from environment variable (default to 100)
+  const envChunkSize = process.env.CHUNK_SIZE;
+  const chunkSize =
+    envChunkSize && !isNaN(parseInt(envChunkSize, 10))
+      ? parseInt(envChunkSize, 10)
+      : 100;
+  console.log(`[*] Chunk size configured from env (CHUNK_SIZE): ${chunkSize}`);
+
   let totalProcessed = 0;
   let totalFailed = 0;
 
   for (const zipPath of zipFiles) {
     const zipFileName = path.basename(zipPath);
     console.log(`\n[~] Reading and processing zip archive from: ${zipPath}`);
-    
+
     let inputZip;
     try {
       inputZip = new AdmZip(zipPath);
     } catch (e) {
-      console.log(`    [!] Error: Failed to load zip file ${zipFileName} at ${zipPath}: ${e.message}`);
+      console.log(
+        `    [!] Error: Failed to load zip file ${zipFileName} at ${zipPath}: ${e.message}`,
+      );
       continue;
     }
 
@@ -466,7 +491,9 @@ function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
     try {
       zipEntries = inputZip.getEntries();
     } catch (e) {
-      console.log(`    [!] Error: Failed to read entries from zip file ${zipFileName}: ${e.message}`);
+      console.log(
+        `    [!] Error: Failed to read entries from zip file ${zipFileName}: ${e.message}`,
+      );
       continue;
     }
 
@@ -475,130 +502,196 @@ function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
       (entry) =>
         !entry.isDirectory && entry.entryName.toLowerCase().endsWith(".json"),
     );
-    console.log(`    [*] Found ${jsonEntries.length} JSON file(s) inside ${zipFileName}`);
+    console.log(
+      `    [*] Found ${jsonEntries.length} JSON file(s) inside ${zipFileName}`,
+    );
 
     if (jsonEntries.length === 0) {
       console.log(`    [-] No JSON files found to process in this archive.`);
       continue;
     }
 
-    const outputZip = new AdmZip();
-    const usedNamesInZip = new Set();
-    let processedInThisZip = 0;
-
-    for (const entry of jsonEntries) {
-      console.log(`\n    [>] Running processing for: ${entry.entryName} (extracted from ${zipFileName})`);
-      try {
-        // Read the JSON file content from zip in memory
-        let text;
-        try {
-          text = entry.getData().toString("utf8");
-        } catch (de) {
-          console.log(`    [!] Error: Failed to read data for ${entry.entryName}: ${de.message}`);
-          totalFailed++;
-          continue;
-        }
-
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (je) {
-          console.log(`    [!] Error: Failed to parse JSON for ${entry.entryName}: ${je.message}`);
-          totalFailed++;
-          continue;
-        }
-
-        // Filter the JSON contents
-        let filteredData;
-        try {
-          filteredData = filterData(data, fields);
-        } catch (fe) {
-          console.log(`    [!] Error: Failed during field filtering for ${entry.entryName}: ${fe.message}`);
-          totalFailed++;
-          continue;
-        }
-
-        // Get the base name of the entry
-        const baseName = path.basename(entry.entryName);
-        if (!baseName) {
-          console.log(`    [!] Error: Could not determine base name for entry ${entry.entryName}`);
-          totalFailed++;
-          continue;
-        }
-
-        // Handle duplicate filenames within this specific output zip
-        let uniqueName = baseName;
-        if (usedNamesInZip.has(uniqueName)) {
-          const ext = path.extname(baseName);
-          const name = path.basename(baseName, ext);
-          let counter = 1;
-          while (usedNamesInZip.has(`${name}_${counter}${ext}`)) {
-            counter++;
-          }
-          uniqueName = `${name}_${counter}${ext}`;
-          console.log(`    [*] Duplicate name resolved. Renaming output to: ${uniqueName}`);
-        }
-        usedNamesInZip.add(uniqueName);
-
-        // Prepare the mapped JSON output (skipping text fields, stripping empty keys, mapping with shortcodes)
-        let jsonOutputData;
-        try {
-          jsonOutputData = prepareJsonOutput(
-            filteredData,
-            textFields,
-            shortcodes,
-          );
-        } catch (oe) {
-          console.log(`    [!] Error: Failed preparing JSON output for ${entry.entryName}: ${oe.message}`);
-          totalFailed++;
-          continue;
-        }
-
-        // Add the filtered JSON file to the output zip
-        try {
-          outputZip.addFile(
-            uniqueName,
-            Buffer.from(JSON.stringify(jsonOutputData, null, 2), "utf8"),
-          );
-          console.log(`    [+] Added JSON output to target: ${uniqueName}`);
-        } catch (ae) {
-          console.log(`    [!] Error: Failed to add ${uniqueName} to output zip: ${ae.message}`);
-          totalFailed++;
-          continue;
-        }
-
-        // Generate the TXT content if there are any text fields in the data
-        try {
-          const txtContent = generateTxtContent(filteredData, textFields);
-          if (txtContent) {
-            const ext = path.extname(uniqueName);
-            const name = path.basename(uniqueName, ext);
-            const txtName = `${name}.txt`;
-            outputZip.addFile(txtName, Buffer.from(txtContent, "utf8"));
-            console.log(`    [+] Generated and added text output to target: ${txtName}`);
-          }
-        } catch (te) {
-          console.log(`    [!] Error: Failed generating or adding TXT for ${entry.entryName}: ${te.message}`);
-        }
-
-        processedInThisZip++;
-        totalProcessed++;
-      } catch (fe) {
-        console.log(`    [!] Unexpected error processing ${entry.entryName}: ${fe.message}`);
-        totalFailed++;
-      }
+    // Split entries into chunks
+    const chunks = [];
+    for (let i = 0; i < jsonEntries.length; i += chunkSize) {
+      chunks.push(jsonEntries.slice(i, i + chunkSize));
     }
 
-    if (processedInThisZip > 0) {
-      const outputZipPath = path.join(outputDir, zipFileName);
-      try {
-        outputZip.writeZip(outputZipPath);
-        console.log(`\n    [+] Successfully wrote output zip archive to: ${outputZipPath}`);
-      } catch (we) {
-        console.log(`    [!] Error: Failed to write output zip file to ${outputZipPath}: ${we.message}`);
-      }
+    if (chunks.length > 1) {
+      console.log(
+        `    [*] Splitting patent list into ${chunks.length} chunks (max ${chunkSize} patents per chunk)`,
+      );
     } else {
-      console.log(`    [-] No files were successfully processed for ${zipFileName}. Output zip was not written.`);
+      console.log(
+        `    [*] Processing all ${jsonEntries.length} patents in a single batch`,
+      );
+    }
+
+    for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
+      const chunkEntries = chunks[chunkIdx];
+      const chunkNum = chunkIdx + 1;
+
+      if (chunks.length > 1) {
+        console.log(
+          `\n    --- [Chunk ${chunkNum}/${chunks.length}] Processing ${chunkEntries.length} patent(s) ---`,
+        );
+      }
+
+      const outputZip = new AdmZip();
+      const usedNamesInZip = new Set();
+      let processedInThisChunk = 0;
+
+      for (const entry of chunkEntries) {
+        console.log(
+          `\n        [>] Running processing for: ${entry.entryName} (extracted from ${zipFileName})`,
+        );
+        try {
+          // Read the JSON file content from zip in memory
+          let text;
+          try {
+            text = entry.getData().toString("utf8");
+          } catch (de) {
+            console.log(
+              `        [!] Error: Failed to read data for ${entry.entryName}: ${de.message}`,
+            );
+            totalFailed++;
+            continue;
+          }
+
+          let data;
+          try {
+            data = JSON.parse(text);
+          } catch (je) {
+            console.log(
+              `        [!] Error: Failed to parse JSON for ${entry.entryName}: ${je.message}`,
+            );
+            totalFailed++;
+            continue;
+          }
+
+          // Filter the JSON contents
+          let filteredData;
+          try {
+            filteredData = filterData(data, fields);
+          } catch (fe) {
+            console.log(
+              `        [!] Error: Failed during field filtering for ${entry.entryName}: ${fe.message}`,
+            );
+            totalFailed++;
+            continue;
+          }
+
+          // Get the base name of the entry
+          const baseName = path.basename(entry.entryName);
+          if (!baseName) {
+            console.log(
+              `        [!] Error: Could not determine base name for entry ${entry.entryName}`,
+            );
+            totalFailed++;
+            continue;
+          }
+
+          // Handle duplicate filenames within this specific output zip
+          let uniqueName = baseName;
+          if (usedNamesInZip.has(uniqueName)) {
+            const ext = path.extname(baseName);
+            const name = path.basename(baseName, ext);
+            let counter = 1;
+            while (usedNamesInZip.has(`${name}_${counter}${ext}`)) {
+              counter++;
+            }
+            uniqueName = `${name}_${counter}${ext}`;
+            console.log(
+              `        [*] Duplicate name resolved. Renaming output to: ${uniqueName}`,
+            );
+          }
+          usedNamesInZip.add(uniqueName);
+
+          // Prepare the mapped JSON output (skipping text fields, stripping empty keys, mapping with shortcodes)
+          let jsonOutputData;
+          try {
+            jsonOutputData = prepareJsonOutput(
+              filteredData,
+              textFields,
+              shortcodes,
+            );
+          } catch (oe) {
+            console.log(
+              `        [!] Error: Failed preparing JSON output for ${entry.entryName}: ${oe.message}`,
+            );
+            totalFailed++;
+            continue;
+          }
+
+          // Add the filtered JSON file to the output zip
+          try {
+            outputZip.addFile(
+              uniqueName,
+              Buffer.from(JSON.stringify(jsonOutputData, null, 2), "utf8"),
+            );
+            console.log(
+              `        [+] Added JSON output to target: ${uniqueName}`,
+            );
+          } catch (ae) {
+            console.log(
+              `        [!] Error: Failed to add ${uniqueName} to output zip: ${ae.message}`,
+            );
+            totalFailed++;
+            continue;
+          }
+
+          // Generate the TXT content if there are any text fields in the data
+          try {
+            const txtContent = generateTxtContent(filteredData, textFields);
+            if (txtContent) {
+              const ext = path.extname(uniqueName);
+              const name = path.basename(uniqueName, ext);
+              const txtName = `${name}.txt`;
+              outputZip.addFile(txtName, Buffer.from(txtContent, "utf8"));
+              console.log(
+                `        [+] Generated and added text output to target: ${txtName}`,
+              );
+            }
+          } catch (te) {
+            console.log(
+              `        [!] Error: Failed generating or adding TXT for ${entry.entryName}: ${te.message}`,
+            );
+          }
+
+          processedInThisChunk++;
+          totalProcessed++;
+        } catch (fe) {
+          console.log(
+            `        [!] Unexpected error processing ${entry.entryName}: ${fe.message}`,
+          );
+          totalFailed++;
+        }
+      }
+
+      if (processedInThisChunk > 0) {
+        // Output zip filename: if we have multiple chunks, append part index
+        let outputZipName = zipFileName;
+        if (chunks.length > 1) {
+          const ext = path.extname(zipFileName);
+          const name = path.basename(zipFileName, ext);
+          outputZipName = `${name}_part${chunkNum}${ext}`;
+        }
+        const outputZipPath = path.join(outputDir, outputZipName);
+        try {
+          outputZip.writeZip(outputZipPath);
+          console.log(
+            `\n    [+] Successfully wrote output zip archive to: ${outputZipPath}`,
+          );
+        } catch (we) {
+          console.log(
+            `    [!] Error: Failed to write output zip file to ${outputZipPath}: ${we.message}`,
+          );
+        }
+      } else {
+        console.log(
+          `    [-] No files were successfully processed for Chunk ${chunkNum}. Output zip was not written.`,
+        );
+      }
     }
   }
 
