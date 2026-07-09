@@ -527,19 +527,17 @@ function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
       );
     }
 
+    const outputZip = new AdmZip();
+    const usedNamesInZip = new Set();
+    let processedInThisZip = 0;
+
     for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
       const chunkEntries = chunks[chunkIdx];
       const chunkNum = chunkIdx + 1;
 
-      if (chunks.length > 1) {
-        console.log(
-          `\n    --- [Chunk ${chunkNum}/${chunks.length}] Processing ${chunkEntries.length} patent(s) ---`,
-        );
-      }
-
-      const outputZip = new AdmZip();
-      const usedNamesInZip = new Set();
-      let processedInThisChunk = 0;
+      console.log(
+        `\n    --- [Chunk ${chunkNum}/${chunks.length}] Processing ${chunkEntries.length} patent(s) ---`,
+      );
 
       for (const entry of chunkEntries) {
         console.log(
@@ -658,7 +656,7 @@ function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
             );
           }
 
-          processedInThisChunk++;
+          processedInThisZip++;
           totalProcessed++;
         } catch (fe) {
           console.log(
@@ -667,31 +665,24 @@ function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
           totalFailed++;
         }
       }
+    }
 
-      if (processedInThisChunk > 0) {
-        // Output zip filename: if we have multiple chunks, append part index
-        let outputZipName = zipFileName;
-        if (chunks.length > 1) {
-          const ext = path.extname(zipFileName);
-          const name = path.basename(zipFileName, ext);
-          outputZipName = `${name}_part${chunkNum}${ext}`;
-        }
-        const outputZipPath = path.join(outputDir, outputZipName);
-        try {
-          outputZip.writeZip(outputZipPath);
-          console.log(
-            `\n    [+] Successfully wrote output zip archive to: ${outputZipPath}`,
-          );
-        } catch (we) {
-          console.log(
-            `    [!] Error: Failed to write output zip file to ${outputZipPath}: ${we.message}`,
-          );
-        }
-      } else {
+    if (processedInThisZip > 0) {
+      const outputZipPath = path.join(outputDir, zipFileName);
+      try {
+        outputZip.writeZip(outputZipPath);
         console.log(
-          `    [-] No files were successfully processed for Chunk ${chunkNum}. Output zip was not written.`,
+          `\n    [+] Successfully wrote single output zip archive to: ${outputZipPath}`,
+        );
+      } catch (we) {
+        console.log(
+          `    [!] Error: Failed to write output zip file to ${outputZipPath}: ${we.message}`,
         );
       }
+    } else {
+      console.log(
+        `    [-] No files were successfully processed for ${zipFileName}. Output zip was not written.`,
+      );
     }
   }
 
