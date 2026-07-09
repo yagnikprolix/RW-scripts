@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "description": "Merged Patent Downloader and Field Processing Tool",
   "type": "module",
-  "main": "getpatent.js",
+  "main": "getPatentFromS3.js",
   "scripts": {
-    "start": "node getpatent.js",
-    "process": "node process.js"
+    "get-patents": "node getPatentFromS3.js",
+    "process": "node processPatentfromDownlods.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.662.0",

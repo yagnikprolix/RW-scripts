@@ -10,8 +10,8 @@ This merged utility provides two functionalities in a single unified Node.js pro
 processpatent/
 ├── package.json        # Combined Node.js project configuration
 ├── README.md           # This instructions file
-├── getpatent.js        # The AWS S3 patent downloader script (ESM)
-├── process.js          # The Node.js patent filtering and TXT conversion script (ESM)
+├── getPatentFromS3.js  # The AWS S3 patent downloader script (ESM)
+├── processPatentfromDownlods.js # The Node.js patent filtering and TXT conversion script (ESM)
 ├── field.csv           # Config file designating fields to keep and fields to format into TXT
 ├── .env                # AWS credentials configuration
 ├── csv/                # Input folder containing CSV lists of patents to download
@@ -21,12 +21,12 @@ processpatent/
 
 ## How It Works
 
-1. **Download (getpatent)**:
+1. **Download (getPatentFromS3)**:
    - Place a CSV of patent IDs inside the `csv/` folder.
-   - Run the downloader: `npm start` (reads settings from `.env` or prompts for credentials).
+   - Run the downloader: `npm run get-patents` (reads settings from `.env` or prompts for credentials).
    - This downloads the files and packages them into ZIP archives under `downloads/`.
 
-2. **Process (process)**:
+2. **Process (processPatentfromDownlods)**:
    - Ensure the fields you want to filter are configured in `field.csv` (use a second column with value `text` to convert HTML-laden JSON fields into plain TXT files).
    - Run the processor: `npm run process`.
    - The script scans `downloads/` and `../getpatent/downloads/` for input ZIP files.
@@ -42,7 +42,7 @@ npm install
 ### 1. Run the Patent Downloader
 To download patents from S3:
 ```bash
-npm start
+npm run get-patents
 ```
 
 ### 2. Run the Patent Processor
