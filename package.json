@@ -6,7 +6,8 @@
   "main": "getPatentFromS3.js",
   "scripts": {
     "get-patents": "node getPatentFromS3.js",
-    "process": "node processPatentfromDownlods.js"
+    "process": "node processPatentfromDownlods.js",
+    "structure": "node structurePatents.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.662.0",
