@@ -56,9 +56,13 @@ export function transformPatentCombinations(inputValues, pnc, isPnw = false, fal
     const extractedSuffix = match[3] || "";
     const digitsWithoutZero = digitsWithZero.replace(/^0+/, "") || "0";
 
-    // For PNW (Without Kindcode): suffix must be empty string ""
-    // For PNWK (With Kindcode): preference goes to extractedSuffix, fallback to fallbackKindCode
-    const cleanSuffix = (extractedSuffix || fallbackKindCode || "").trim();
+    // Sanitize duplicate trailing letter suffixes (e.g. "EE" -> "E"), leaving numbers (B2, A11) untouched
+    let cleanSuffix = extractedSuffix
+      ? extractedSuffix.replace(/([A-Za-z])\1+$/g, "$1")
+      : (fallbackKindCode || "").trim();
+
+    // For PNW (Without Kindcode): suffix is forced to empty string ""
+    // For PNWK (With Kindcode): use cleanSuffix
     const suffix = isPnw ? "" : cleanSuffix;
 
     // Form 1: Prefix + DigitsWithZero + Suffix (e.g. RE041900 for PNW, RE041900E for PNWK)
