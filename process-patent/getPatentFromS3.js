@@ -280,29 +280,14 @@ async function main() {
   console.log("       S3 PATENT JSON DOWNLOADER         ");
   console.log("=========================================\n");
 
-  // 1. Gather AWS Credentials (check env first, fallback to prompt)
+  // 1. Gather AWS Configuration (optional credentials; falls back to EC2 IAM role)
   let accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-  if (!accessKeyId) {
-    accessKeyId = await askQuestion("Enter AWS Access Key ID: ");
-    if (!accessKeyId) {
-      console.error("Error: AWS Access Key ID is required.");
-      process.exit(1);
-    }
-  }
-
   let secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-  if (!secretAccessKey) {
-    secretAccessKey = await askQuestion("Enter AWS Secret Access Key: ");
-    if (!secretAccessKey) {
-      console.error("Error: AWS Secret Access Key is required.");
-      process.exit(1);
-    }
-  }
 
   let region = process.env.AWS_REGION;
   if (!region) {
-    region = await askQuestion("Enter AWS Region [us-east-1]: ");
-    region = region || "us-east-1";
+    region = await askQuestion("Enter AWS Region [ap-south-1]: ");
+    region = region || "ap-south-1";
   }
 
   let bucketName = process.env.AWS_BUCKET_NAME;
@@ -316,13 +301,14 @@ async function main() {
 
   console.log("\nInitializing S3 Client...");
   const endpoint = process.env.AWS_ENDPOINT;
-  const s3Config = {
-    region,
-    credentials: {
-      accessKeyId,
-      secretAccessKey,
-    },
-  };
+  const s3Config = { region };
+
+  if (accessKeyId && secretAccessKey) {
+    s3Config.credentials = { accessKeyId, secretAccessKey };
+  } else {
+    console.log("[*] AWS explicit credentials omitted. Using default AWS credential provider chain / EC2 IAM role.");
+  }
+
   if (endpoint) {
     s3Config.endpoint = endpoint;
     s3Config.forcePathStyle = true;

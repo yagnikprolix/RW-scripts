@@ -207,28 +207,25 @@ async function main() {
   console.log("   BATCH S3 PATENT FETCH, ES INDEX & UPLOAD      ");
   console.log("=================================================\n");
 
-  // 1. AWS Credentials
+  // 1. AWS Configuration (optional credentials; falls back to EC2 IAM role)
   let accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-  if (!accessKeyId) {
-    accessKeyId = await askQuestion("Enter AWS Access Key ID: ");
-  }
-
   let secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-  if (!secretAccessKey) {
-    secretAccessKey = await askQuestion("Enter AWS Secret Access Key: ");
-  }
-
   let region = process.env.AWS_REGION || "ap-south-1";
   let bucketName = process.env.AWS_BUCKET_NAME;
+
   if (!bucketName) {
     bucketName = await askQuestion("Enter S3 Bucket Name: ");
   }
 
   const endpoint = process.env.AWS_ENDPOINT;
-  const s3Config = {
-    region,
-    credentials: { accessKeyId, secretAccessKey },
-  };
+  const s3Config = { region };
+
+  if (accessKeyId && secretAccessKey) {
+    s3Config.credentials = { accessKeyId, secretAccessKey };
+  } else {
+    console.log("[*] AWS explicit credentials omitted. Using default AWS credential provider chain / EC2 IAM role.");
+  }
+
   if (endpoint) {
     s3Config.endpoint = endpoint;
     s3Config.forcePathStyle = true;
