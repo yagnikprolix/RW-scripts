@@ -56,9 +56,10 @@ export function transformPatentCombinations(inputValues, pnc, isPnw = false, fal
     const extractedSuffix = match[3] || "";
     const digitsWithoutZero = digitsWithZero.replace(/^0+/, "") || "0";
 
-    // For PNW (Without Kindcode): suffix must be empty ""
-    // For PNWK (With Kindcode): suffix is extractedSuffix || fallbackKindCode
-    const suffix = isPnw ? "" : (extractedSuffix || (fallbackKindCode || "").trim());
+    // For PNW (Without Kindcode): suffix must be empty string ""
+    // For PNWK (With Kindcode): preference goes to extractedSuffix, fallback to fallbackKindCode
+    const cleanSuffix = (extractedSuffix || fallbackKindCode || "").trim();
+    const suffix = isPnw ? "" : cleanSuffix;
 
     // Form 1: Prefix + DigitsWithZero + Suffix (e.g. RE041900 for PNW, RE041900E for PNWK)
     const form1 = `${prefix}${digitsWithZero}${suffix}`;
@@ -98,12 +99,14 @@ export function updatePatentData(jsonData, patentId) {
   ).trim().toUpperCase();
 
   // Determine Kind Code (PKC)
-  const pkc = (
-    jsonData.PKC ||
-    jsonData.KC ||
-    (patentId && patentId.match(/[A-Za-z0-9]+$/) ? patentId.match(/[A-Za-z0-9]+$/)[0] : "") ||
-    ""
-  ).trim();
+  let pkc = (jsonData.PKC || jsonData.KC || "").trim();
+  if (!pkc && patentId) {
+    // Extract trailing kind code suffix after digits (e.g. "USRE015592E" -> "E", "US7654321B2" -> "B2")
+    const match = patentId.match(/\d+([A-Za-z][A-Za-z0-9]*)$/);
+    if (match) {
+      pkc = match[1];
+    }
+  }
 
   // Transform PNW field (isPnw = true: strips any KindCode)
   if (jsonData.PNW) {
