@@ -3,14 +3,13 @@ import {
   ListObjectsV2Command,
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
-import dotenv from "dotenv";
-import fs from "fs";
-import path from "path";
-import readline from "readline";
-import { pipeline } from "stream/promises";
-import { execSync } from "child_process";
+import { fileURLToPath } from "url";
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, "..");
+
+dotenv.config({ path: path.join(rootDir, ".env") });
 
 const askQuestion = (query) => {
   const rl = readline.createInterface({
@@ -316,20 +315,26 @@ async function main() {
   }
 
   console.log("\nInitializing S3 Client...");
-  const s3Client = new S3Client({
+  const endpoint = process.env.AWS_ENDPOINT;
+  const s3Config = {
     region,
     credentials: {
       accessKeyId,
       secretAccessKey,
     },
-  });
+  };
+  if (endpoint) {
+    s3Config.endpoint = endpoint;
+    s3Config.forcePathStyle = true;
+  }
+  const s3Client = new S3Client(s3Config);
 
-  const downloadsDir = path.join(process.cwd(), "downloads");
+  const downloadsDir = path.join(__dirname, "downloads");
   if (!fs.existsSync(downloadsDir)) {
     fs.mkdirSync(downloadsDir, { recursive: true });
   }
 
-  const csvDir = path.join(process.cwd(), "csv");
+  const csvDir = path.join(__dirname, "csv");
   if (!fs.existsSync(csvDir)) {
     fs.mkdirSync(csvDir, { recursive: true });
   }

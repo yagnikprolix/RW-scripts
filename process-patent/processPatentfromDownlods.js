@@ -6,10 +6,11 @@ import AdmZip from "adm-zip";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, "..");
+
+dotenv.config({ path: path.join(rootDir, ".env") });
 
 /**
  * Reads the fields to extract from the CSV file.
@@ -694,16 +695,19 @@ function processZips(inputDirs, outputDir, fields, textFields, shortcodes) {
 }
 
 function main() {
-  // Setup paths relative to the script location
-  const csvPath = path.join(__dirname, "field2.csv");
+  // Setup paths relative to the script location & root directory
+  let csvPath = path.join(__dirname, "field2.csv");
+  if (!fs.existsSync(csvPath)) {
+    csvPath = path.join(__dirname, "field.csv");
+  }
   const outputDir = path.join(__dirname, "processed_patent");
-  const shortcodePath = path.join(__dirname, "shortcode.json");
+  const shortcodePath = path.join(rootDir, "shortcode.json");
 
   // Configure the directories to check for zip files (using 'downloads' as primary)
   const inputDirs = [path.join(__dirname, "downloads")];
 
   // If 'downloads' is present in the sibling 'getpatent' folder (AWS setup fallback)
-  const siblingDownloads = path.join(__dirname, "../getpatent/downloads");
+  const siblingDownloads = path.join(rootDir, "../getpatent/downloads");
   if (fs.existsSync(siblingDownloads)) {
     inputDirs.push(siblingDownloads);
   }

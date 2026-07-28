@@ -1,0 +1,79 @@
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "bool": {
+            "must": [
+              {
+                "bool": {
+                  "must": {
+                    "query_string": {
+                      "fields": [
+                        "PNC"
+                      ],
+                      "query": "US"
+                    }
+                  }
+                }
+              },
+              {
+                "bool": {
+                  "must": {
+                    "query_string": {
+                      "fields": [
+                        "PKC"
+                      ],
+                      "query": "E"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "filter": [
+        {
+          "term": {
+            "DELETE": "false"
+          }
+        }
+      ]
+    }
+  },
+  "runtime_mappings": {
+    "country_priority": {
+      "type": "long",
+      "script": {
+        "source": "\n          if (doc['PNC'].size() == 0) {\n            emit(1);\n            return;\n          }\n          String p = doc['PNC'].value;\n          \n          emit(1);\n        "
+      }
+    },
+    "legal_status_priority": {
+      "type": "long",
+      "script": {
+        "source": "\n          if (doc.containsKey('ALD.keyword') && doc['ALD.keyword'].size() > 0) {\n            if (doc['ALD.keyword'].value == 'dead') {\n              emit(1);\n              return;\n            }\n          }\n          emit(2);\n        "
+      }
+    }
+  },
+  "from": 0,
+  "sort": [
+    {
+      "legal_status_priority": {
+        "order": "asc"
+      }
+    },
+    {
+      "_score": {
+        "order": "desc"
+      }
+    },
+    {
+      "PN_B": {
+        "order": "asc"
+      }
+    }
+  ],
+  "track_total_hits": true,
+  "size": 50
+}

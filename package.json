@@ -3,14 +3,17 @@
   "version": "1.0.0",
   "description": "Merged Patent Downloader and Field Processing Tool",
   "type": "module",
-  "main": "getPatentFromS3.js",
+  "main": "process-patent/getPatentFromS3.js",
   "scripts": {
-    "get-patents": "node getPatentFromS3.js",
-    "process": "node processPatentfromDownlods.js",
-    "structure": "node structurePatents.js"
+    "get-patents": "node process-patent/getPatentFromS3.js",
+    "process": "node process-patent/processPatentfromDownlods.js",
+    "structure": "node process-patent/structurePatents.js",
+    "sync-es": "node sync-es-patent/syncEsPatent.js",
+    "export-es": "node export-es-patent/exportEsPatent.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.662.0",
+    "@elastic/elasticsearch": "^8.19.2",
     "adm-zip": "^0.5.12",
     "dotenv": "^16.4.5"
   }

@@ -1,36 +1,66 @@
-# Patent Downloader & Field Processing Tool
+# Modular Patent Processing Tools
 
-This merged utility provides two functionalities in a single unified Node.js project:
-1. **Download Patents**: Downloads patent JSON files from AWS S3 (configured via `.env`) based on patent lists in a `csv/` folder and saves them as ZIP archives in the `downloads/` directory.
-2. **Process Patents**: Processes ZIP archives of patent JSON files directly from the `downloads/` folder. It filters their keys using a configuration file (`field.csv`), generates clean `.txt` files for any designated text fields (matching line-spacing and tag-stripping rules), and packages the output back into ZIP files inside `processed_patent/`.
+This project is organized into module-wise process folders sharing common root configuration files (`.env`, `shortcode.json`, `examplejson.json`).
 
 ## Directory Structure
 
 ```text
-processpatent/
-├── package.json        # Combined Node.js project configuration
-├── README.md           # This instructions file
-├── getPatentFromS3.js  # The AWS S3 patent downloader script (ESM)
-├── processPatentfromDownlods.js # The Node.js patent filtering and TXT conversion script (ESM)
-├── field.csv           # Config file designating fields to keep and fields to format into TXT
-├── .env                # AWS credentials configuration
-├── csv/                # Input folder containing CSV lists of patents to download
-├── downloads/          # Unified folder where downloader saves ZIPs & processor reads ZIPs
-└── processed_patent/   # Output folder where processed ZIP archives are generated
+RW-scripts/
+├── package.json                 # Node.js project configuration & scripts
+├── README.md                    # Project documentation
+├── .env                         # Shared AWS & Elasticsearch credentials & configurations
+├── shortcode.json               # Shared common patent shortcode mappings
+├── examplejson.json             # Shared common patent JSON format reference
+│
+├── process-patent/              # Module 1: Patent Download & Filtering Process
+│   ├── getPatentFromS3.js       # S3 patent downloader script
+│   ├── processPatentfromDownlods.js # Patent filtering and TXT conversion script
+│   ├── structurePatents.js      # Patent directory structurer script
+│   ├── field.csv                # Field extraction configuration
+│   ├── field2.csv               # Secondary field extraction configuration
+│   ├── csv/                     # Module CSV input folder containing lists of patents
+│   ├── downloads/               # Module folder for downloaded patent ZIPs/JSONs
+│   ├── processed_patent/        # Module output folder for processed patent archives
+│   └── structured_patent/       # Module output folder for structured patent files
+│
+├── sync-es-patent/              # Module 2: Batch S3 Fetch, ES Indexing & S3 Re-upload Process
+│   ├── syncEsPatent.js          # Batch S3 fetch, JSON field update, ES index & upload script
+│   ├── updatePatentData.js      # Customizable field transformation logic
+│   └── txt/                     # Input directory for TXT files containing patent numbers
+│
+└── export-es-patent/            # Module 3: Elasticsearch Paginated Query & Aggregation Exporter
+    ├── exportEsPatent.js        # Script fetching > 10,000 patent numbers via composite aggregation
+    ├── query.json               # Custom ES search query configuration
+    └── output/                  # Output directory for exported patent_numbers.txt file
 ```
 
-## How It Works
+## Modular Design
 
-1. **Download (getPatentFromS3)**:
-   - Place a CSV of patent IDs inside the `csv/` folder.
-   - Run the downloader: `npm run get-patents` (reads settings from `.env` or prompts for credentials).
-   - This downloads the files and packages them into ZIP archives under `downloads/`.
+- **Shared Root Config**: `.env`, `shortcode.json`, and `examplejson.json` reside at the root level to share environment variables and shortcode dictionary mappings across all process modules.
+- **Module Isolation**: Each module has its own processing scripts and input/output directories.
 
-2. **Process (processPatentfromDownlods)**:
-   - Ensure the fields you want to filter are configured in `field.csv` (use a second column with value `text` to convert HTML-laden JSON fields into plain TXT files).
-   - Run the processor: `npm run process`.
-   - The script scans `downloads/` and `../getpatent/downloads/` for input ZIP files.
-   - Filters the JSON files, extracts text sections, formats them cleanly into matching `.txt` files, and saves everything back into corresponding ZIP files under `processed_patent/`.
+## Configuration (`.env`)
+
+Add AWS and Elasticsearch settings to `.env`:
+```env
+AWS_ACCESS_KEY_ID="your_access_key"
+AWS_SECRET_ACCESS_KEY="your_secret_key"
+AWS_REGION="ap-south-1"
+AWS_BUCKET_NAME="rwire-all-patent-json-112024"
+
+# Batching & Export
+BATCH_SIZE=20
+CONCURRENCY_LIMIT=10
+EXPORT_FIELD="PN_B.keyword"
+EXPORT_BUCKET_SIZE=10000
+
+# Elasticsearch
+ELASTICSEARCH_NODE="http://localhost:9200"
+ELASTICSEARCH_INDEX="patents"
+ELASTICSEARCH_USERNAME=""
+ELASTICSEARCH_PASSWORD=""
+ELASTICSEARCH_API_KEY=""
+```
 
 ## Usage
 
@@ -40,20 +70,31 @@ npm install
 ```
 
 ### 1. Run the Patent Downloader
-To download patents from S3:
+To download patents from S3 using `process-patent/getPatentFromS3.js`:
 ```bash
 npm run get-patents
 ```
 
 ### 2. Run the Patent Processor
-To process, filter, and convert the downloaded ZIPs:
+To filter and convert downloaded patent archives using `process-patent/processPatentfromDownlods.js`:
 ```bash
 npm run process
 ```
 
-## Script Features
-- **Unified Pipeline**: The downloader outputs ZIP files into `downloads/` and the processor reads them directly from `downloads/`, making it easy to run them sequentially.
-- **In-Memory ZIP Processing**: Unzips and processes JSON content entirely in-memory, minimizing disk usage.
-- **Dynamic TXT Conversion**: Automatically formats JSON text fields (e.g. `AB_EN`, `CL_EN`, etc.) into clean plain-text `.txt` files with strict line-spacing rules and HTML tag stripping.
-- **Conflict Resolution**: Ensures unique filenames within output ZIP files by appending numerical suffixes (e.g. `_1.json`, `_1.txt`) if names clash.
-- **Flexible Path Scanning**: Scans multiple local and parent sibling paths to locate input ZIPs seamlessly.
+### 3. Run the Patent Directory Structurer
+To organize patent files into standard folder hierarchies using `process-patent/structurePatents.js`:
+```bash
+npm run structure
+```
+
+### 4. Run the Batch Elasticsearch & S3 Sync
+To process patent lists from `sync-es-patent/txt/` in batches, update fields, index into Elasticsearch, and re-upload to S3:
+```bash
+npm run sync-es
+```
+
+### 5. Run the Elasticsearch Patent Exporter
+To execute the ES query in `export-es-patent/query.json` and export > 10,000 patent numbers into `export-es-patent/output/patent_numbers.txt` using fast 10,000-bucket composite aggregations:
+```bash
+npm run export-es
+```
