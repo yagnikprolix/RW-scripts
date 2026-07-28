@@ -1,5 +1,9 @@
 /**
- * Helper to generate all combinations for patent numbers (PNW and PNWK):
+ * Helper to generate all combinations for patent numbers:
+ * - PNW (Without Kindcode): Omits/strips Kindcode suffix completely.
+ * - PNWK (With Kindcode): Includes Kindcode suffix.
+ * 
+ * Generated Combination Forms:
  * 1. [Prefix][DigitsWithZero][Suffix]          (e.g., RE041900 / RE041900E)
  * 2. [PNC][Prefix][DigitsWithZero][Suffix]     (e.g., USRE041900 / USRE041900E)
  * 3. [Prefix][DigitsWithoutZero][Suffix]       (e.g., RE41900 / RE41900E)
@@ -7,9 +11,11 @@
  *
  * @param {string|string[]} inputValues - Patent number(s) to transform
  * @param {string} pnc - Country code (e.g., "US")
+ * @param {boolean} isPnw - If true, strips kindcode for PNW. If false, includes kindcode for PNWK.
+ * @param {string} fallbackKindCode - Fallback Kindcode from PKC / KC if available
  * @returns {string[]} Unique array of patent number combinations
  */
-export function transformPatentCombinations(inputValues, pnc) {
+export function transformPatentCombinations(inputValues, pnc, isPnw = false, fallbackKindCode = "") {
   if (!inputValues) return inputValues;
 
   const items = Array.isArray(inputValues) ? inputValues : [inputValues];
@@ -25,31 +31,42 @@ export function transformPatentCombinations(inputValues, pnc) {
     // If item starts with country code PNC (e.g. US), strip it to get the core
     if (currentPnc && item.toUpperCase().startsWith(currentPnc)) {
       item = item.substring(currentPnc.length).trim();
+    } else if (!currentPnc && item.match(/^[A-Z]{2}/i)) {
+      currentPnc = item.substring(0, 2).toUpperCase();
+      item = item.substring(2).trim();
     }
 
     // Parse remaining core into [prefix][digits][suffix]
     // e.g. "RE041900E" -> prefix="RE", digits="041900", suffix="E"
     const match = item.match(/^([A-Za-z]*)(\d+)([A-Za-z0-9]*)$/);
     if (!match) {
-      resultSet.add(rawItem);
-      if (currentPnc && !rawItem.toUpperCase().startsWith(currentPnc)) {
-        resultSet.add(currentPnc + rawItem);
+      let coreVal = rawItem;
+      if (isPnw && currentPnc && coreVal.toUpperCase().startsWith(currentPnc)) {
+        coreVal = coreVal.substring(currentPnc.length);
+      }
+      resultSet.add(coreVal);
+      if (currentPnc && !coreVal.toUpperCase().startsWith(currentPnc)) {
+        resultSet.add(currentPnc + coreVal);
       }
       continue;
     }
 
     const prefix = match[1];
     const digitsWithZero = match[2];
-    const suffix = match[3];
+    const extractedSuffix = match[3] || "";
     const digitsWithoutZero = digitsWithZero.replace(/^0+/, "") || "0";
 
-    // Form 1: Prefix + DigitsWithZero + Suffix (e.g. RE041900)
+    // For PNW (Without Kindcode): suffix must be empty ""
+    // For PNWK (With Kindcode): suffix is extractedSuffix || fallbackKindCode
+    const suffix = isPnw ? "" : (extractedSuffix || (fallbackKindCode || "").trim());
+
+    // Form 1: Prefix + DigitsWithZero + Suffix (e.g. RE041900 for PNW, RE041900E for PNWK)
     const form1 = `${prefix}${digitsWithZero}${suffix}`;
-    // Form 2: PNC + Prefix + DigitsWithZero + Suffix (e.g. USRE041900)
+    // Form 2: PNC + Prefix + DigitsWithZero + Suffix (e.g. USRE041900 for PNW, USRE041900E for PNWK)
     const form2 = currentPnc ? `${currentPnc}${prefix}${digitsWithZero}${suffix}` : form1;
-    // Form 3: Prefix + DigitsWithoutZero + Suffix (e.g. RE41900)
+    // Form 3: Prefix + DigitsWithoutZero + Suffix (e.g. RE41900 for PNW, RE41900E for PNWK)
     const form3 = `${prefix}${digitsWithoutZero}${suffix}`;
-    // Form 4: PNC + Prefix + DigitsWithoutZero + Suffix (e.g. USRE41900)
+    // Form 4: PNC + Prefix + DigitsWithoutZero + Suffix (e.g. USRE41900 for PNW, USRE41900E for PNWK)
     const form4 = currentPnc ? `${currentPnc}${prefix}${digitsWithoutZero}${suffix}` : form3;
 
     resultSet.add(form1);
@@ -80,14 +97,22 @@ export function updatePatentData(jsonData, patentId) {
     ""
   ).trim().toUpperCase();
 
-  // Transform PNW field into all combinations
+  // Determine Kind Code (PKC)
+  const pkc = (
+    jsonData.PKC ||
+    jsonData.KC ||
+    (patentId && patentId.match(/[A-Za-z0-9]+$/) ? patentId.match(/[A-Za-z0-9]+$/)[0] : "") ||
+    ""
+  ).trim();
+
+  // Transform PNW field (isPnw = true: strips any KindCode)
   if (jsonData.PNW) {
-    jsonData.PNW = transformPatentCombinations(jsonData.PNW, pnc);
+    jsonData.PNW = transformPatentCombinations(jsonData.PNW, pnc, true, pkc);
   }
 
-  // Transform PNWK field into all combinations
+  // Transform PNWK field (isPnw = false: includes KindCode)
   if (jsonData.PNWK) {
-    jsonData.PNWK = transformPatentCombinations(jsonData.PNWK, pnc);
+    jsonData.PNWK = transformPatentCombinations(jsonData.PNWK, pnc, false, pkc);
   }
 
   return jsonData;
