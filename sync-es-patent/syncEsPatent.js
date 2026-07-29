@@ -202,6 +202,154 @@ async function bulkIndexToElasticsearch(esClient, indexName, docs) {
   }
 }
 
+/**
+ * Concurrently fetches patent JSONs from S3 for a single batch and updates their fields.
+ */
+async function fetchBatchData(
+  currentBatch,
+  batchNum,
+  totalBatches,
+  s3Client,
+  bucketName,
+  options,
+  totals,
+  patentListLength
+) {
+  const { concurrencyLimit, progressInterval, debugLogFields } = options;
+  console.log(`\n--- [Batch ${batchNum}/${totalBatches}] Fetching ${currentBatch.length} patent(s) from S3 ---`);
+
+  const esBatchDocs = [];
+  const s3UploadQueue = [];
+  let fetchedCount = 0;
+  let updatedCount = 0;
+  let failedCount = 0;
+
+  let itemIdx = 0;
+  async function worker() {
+    while (itemIdx < currentBatch.length) {
+      const idx = itemIdx++;
+      if (idx >= currentBatch.length) break;
+
+      const patentId = currentBatch[idx];
+      try {
+        const { data, resolvedKey } = await fetchPatentFromS3(s3Client, bucketName, patentId);
+        fetchedCount++;
+
+        // Update JSON fields
+        const updatedJson = updatePatentData(data, patentId);
+        updatedCount++;
+
+        if (debugLogFields) {
+          console.log(`\n    [DEBUG] Updated fields for patent '${patentId}':`);
+          if (updatedJson.PNW) console.log(`      PNW:  `, JSON.stringify(updatedJson.PNW));
+          if (updatedJson.PNWK) console.log(`      PNWK: `, JSON.stringify(updatedJson.PNWK));
+        }
+
+        // Prepare ES Doc & S3 Upload item
+        const docId = updatedJson.patent_id || updatedJson.id || patentId;
+        esBatchDocs.push({ id: docId, body: updatedJson });
+        s3UploadQueue.push({ key: resolvedKey, data: updatedJson });
+
+        totals.processedCount++;
+        if (totals.processedCount % progressInterval === 0 || totals.processedCount === patentListLength) {
+          console.log(`    [>] Progress: [${totals.processedCount}/${patentListLength}] Processed patent: ${patentId}`);
+        }
+      } catch (itemErr) {
+        console.error(`    [!] Failed to process ${patentId}: ${itemErr.message}`);
+        failedCount++;
+        totals.processedCount++;
+      }
+    }
+  }
+
+  const workers = [];
+  const limit = Math.min(concurrencyLimit, currentBatch.length);
+  for (let i = 0; i < limit; i++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+
+  return {
+    batchNum,
+    currentBatch,
+    esBatchDocs,
+    s3UploadQueue,
+    fetchedCount,
+    updatedCount,
+    failedCount,
+  };
+}
+
+/**
+ * Splits batch docs into sub-chunks of max size `esBulkChunkSize`.
+ * For each sub-chunk: bulk indexes into ES and instantly uploads to S3.
+ */
+async function processBatchChunks(
+  batchData,
+  esClient,
+  esIndex,
+  s3Client,
+  bucketName,
+  options
+) {
+  const { batchNum, esBatchDocs, s3UploadQueue } = batchData;
+  const { enableEsIndex, enableS3Upload, esBulkChunkSize } = options;
+
+  let totalEsIndexed = 0;
+  let totalS3Uploaded = 0;
+
+  if (esBatchDocs.length === 0) {
+    return { totalEsIndexed, totalS3Uploaded };
+  }
+
+  const totalItems = esBatchDocs.length;
+  const chunkCount = Math.ceil(totalItems / esBulkChunkSize);
+
+  console.log(`\n  [Batch ${batchNum}] Indexing & Uploading ${totalItems} document(s) in ${chunkCount} sub-chunk(s) (max ${esBulkChunkSize}/chunk)...`);
+
+  for (let cIdx = 0; cIdx < chunkCount; cIdx++) {
+    const start = cIdx * esBulkChunkSize;
+    const end = Math.min(start + esBulkChunkSize, totalItems);
+
+    const esChunkDocs = esBatchDocs.slice(start, end);
+    const s3ChunkQueue = s3UploadQueue.slice(start, end);
+
+    console.log(`\n    [Batch ${batchNum} | Chunk ${cIdx + 1}/${chunkCount}] Processing ${esChunkDocs.length} patent(s)...`);
+
+    // 1. Bulk index chunk into Elasticsearch
+    if (enableEsIndex && esClient && esChunkDocs.length > 0) {
+      console.log(`      [*] Bulk indexing ${esChunkDocs.length} document(s) into ES index '${esIndex}'...`);
+      const { indexed, failed } = await bulkIndexToElasticsearch(esClient, esIndex, esChunkDocs);
+      totalEsIndexed += indexed;
+      if (failed > 0) {
+        console.warn(`      [!] ES Indexing warnings: ${failed} document(s) failed indexing.`);
+      } else {
+        console.log(`      [+] ES Bulk Indexing successful (${indexed} documents).`);
+      }
+    } else if (!enableEsIndex) {
+      console.log(`      [*] ES Indexing is DISABLED (ENABLE_ES_INDEX=false). Skipping Elasticsearch indexing.`);
+    }
+
+    // 2. Instantly re-upload updated JSONs for this chunk to S3
+    if (enableS3Upload && s3ChunkQueue.length > 0) {
+      console.log(`      [*] Instantly re-uploading ${s3ChunkQueue.length} updated JSON(s) for Chunk ${cIdx + 1} to S3 bucket '${bucketName}'...`);
+      for (const item of s3ChunkQueue) {
+        try {
+          await uploadPatentToS3(s3Client, bucketName, item.key, item.data);
+          totalS3Uploaded++;
+        } catch (upErr) {
+          console.error(`      [!] Failed S3 re-upload for ${item.key}: ${upErr.message}`);
+        }
+      }
+      console.log(`      [+] S3 Chunk ${cIdx + 1} Upload finished.`);
+    } else if (!enableS3Upload) {
+      console.log(`      [*] S3 Re-upload is DISABLED (ENABLE_S3_UPLOAD=false). Skipping S3 upload.`);
+    }
+  }
+
+  return { totalEsIndexed, totalS3Uploaded };
+}
+
 async function main() {
   console.log("=================================================");
   console.log("   BATCH S3 PATENT FETCH, ES INDEX & UPLOAD      ");
@@ -263,12 +411,14 @@ async function main() {
   const batchSize = parseInt(process.env.BATCH_SIZE || "20", 10);
   const concurrencyLimit = parseInt(process.env.CONCURRENCY_LIMIT || "10", 10);
   const progressInterval = Math.max(1, parseInt(process.env.PROGRESS_INTERVAL || "10", 10));
+  const esBulkChunkSize = parseInt(process.env.ES_BULK_CHUNK_SIZE || process.env.CHUNK_SIZE || "40", 10);
   const enableS3Upload = process.env.ENABLE_S3_UPLOAD === "true";
   const enableEsIndex = process.env.ENABLE_ES_INDEX === "true";
   const debugLogFields = process.env.DEBUG_LOG_UPDATED_FIELDS === "true";
 
   console.log(`[*] Configured Batch Size: ${batchSize} patents/batch`);
   console.log(`[*] Configured Concurrency Limit: ${concurrencyLimit} parallel workers`);
+  console.log(`[*] ES Bulk Chunk Size: ${esBulkChunkSize} docs/chunk (ES index & S3 upload)`);
   console.log(`[*] Progress Log Interval: Every ${progressInterval} patent(s)`);
   console.log(`[*] S3 Re-upload Enabled: ${enableS3Upload}`);
   console.log(`[*] ES Indexing Enabled:  ${enableEsIndex}`);
@@ -322,98 +472,74 @@ async function main() {
 
     console.log(`[*] Split into ${batches.length} batch(es) of max ${batchSize} items.`);
 
-    let totalProcessedCount = 0;
     let totalS3Fetched = 0;
     let totalUpdated = 0;
     let totalEsIndexed = 0;
     let totalS3Uploaded = 0;
     let totalFailed = 0;
 
+    const totals = { processedCount: 0 };
+    const options = {
+      concurrencyLimit,
+      progressInterval,
+      debugLogFields,
+      enableEsIndex,
+      enableS3Upload,
+      esBulkChunkSize,
+    };
+
+    // Pre-fetch Batch 1
+    let nextFetchPromise = fetchBatchData(
+      batches[0],
+      1,
+      batches.length,
+      s3Client,
+      bucketName,
+      options,
+      totals,
+      patentList.length
+    );
+
     for (let bIdx = 0; bIdx < batches.length; bIdx++) {
-      const currentBatch = batches[bIdx];
       const batchNum = bIdx + 1;
 
-      console.log(`\n--- [Batch ${batchNum}/${batches.length}] Processing ${currentBatch.length} patent(s) ---`);
+      // 1. Await fetch for current batch
+      const currentBatchData = await nextFetchPromise;
 
-      const esBatchDocs = [];
-      const s3UploadQueue = [];
+      totalS3Fetched += currentBatchData.fetchedCount;
+      totalUpdated += currentBatchData.updatedCount;
+      totalFailed += currentBatchData.failedCount;
 
-      // Concurrency worker for S3 fetch & field update
-      let itemIdx = 0;
-      async function worker() {
-        while (itemIdx < currentBatch.length) {
-          const idx = itemIdx++;
-          if (idx >= currentBatch.length) break;
-
-          const patentId = currentBatch[idx];
-          try {
-            const { data, resolvedKey } = await fetchPatentFromS3(s3Client, bucketName, patentId);
-            totalS3Fetched++;
-
-            // Update JSON fields
-            const updatedJson = updatePatentData(data, patentId);
-            totalUpdated++;
-
-            if (debugLogFields) {
-              console.log(`\n    [DEBUG] Updated fields for patent '${patentId}':`);
-              if (updatedJson.PNW) console.log(`      PNW:  `, JSON.stringify(updatedJson.PNW));
-              if (updatedJson.PNWK) console.log(`      PNWK: `, JSON.stringify(updatedJson.PNWK));
-            }
-
-            // Prepare ES Doc & S3 Upload item
-            const docId = updatedJson.patent_id || updatedJson.id || patentId;
-            esBatchDocs.push({ id: docId, body: updatedJson });
-            s3UploadQueue.push({ key: resolvedKey, data: updatedJson });
-
-            totalProcessedCount++;
-            if (totalProcessedCount % progressInterval === 0 || totalProcessedCount === patentList.length) {
-              console.log(`    [>] Progress: [${totalProcessedCount}/${patentList.length}] Processed patent: ${patentId}`);
-            }
-
-          } catch (itemErr) {
-            console.error(`    [!] Failed to process ${patentId}: ${itemErr.message}`);
-            totalFailed++;
-            totalProcessedCount++;
-          }
-        }
+      // 2. Trigger background pre-fetch for next batch if available
+      if (bIdx + 1 < batches.length) {
+        console.log(`\n  [⚡ Pipeline] Triggering pre-fetch for Batch ${batchNum + 1}/${batches.length} in background while Batch ${batchNum} indexes and uploads...`);
+        nextFetchPromise = fetchBatchData(
+          batches[bIdx + 1],
+          batchNum + 1,
+          batches.length,
+          s3Client,
+          bucketName,
+          options,
+          totals,
+          patentList.length
+        );
+      } else {
+        nextFetchPromise = null;
       }
 
-      const workers = [];
-      const limit = Math.min(concurrencyLimit, currentBatch.length);
-      for (let i = 0; i < limit; i++) {
-        workers.push(worker());
-      }
-      await Promise.all(workers);
+      // 3. Process ES indexing & S3 upload in sub-chunks for current batch
+      const { totalEsIndexed: chunkEsCount, totalS3Uploaded: chunkS3Count } =
+        await processBatchChunks(
+          currentBatchData,
+          esClient,
+          esIndex,
+          s3Client,
+          bucketName,
+          options
+        );
 
-      // Bulk index batch into Elasticsearch
-      if (enableEsIndex && esClient && esBatchDocs.length > 0) {
-        console.log(`\n    [*] Bulk indexing ${esBatchDocs.length} document(s) into ES index '${esIndex}'...`);
-        const { indexed, failed } = await bulkIndexToElasticsearch(esClient, esIndex, esBatchDocs);
-        totalEsIndexed += indexed;
-        if (failed > 0) {
-          console.warn(`    [!] ES Indexing warnings: ${failed} document(s) failed indexing.`);
-        } else {
-          console.log(`    [+] ES Bulk Indexing successful (${indexed} documents).`);
-        }
-      } else if (!enableEsIndex) {
-        console.log(`    [*] ES Indexing is DISABLED (ENABLE_ES_INDEX=false). Skipping Elasticsearch indexing.`);
-      }
-
-      // Re-upload updated JSONs to S3
-      if (enableS3Upload && s3UploadQueue.length > 0) {
-        console.log(`    [*] Re-uploading ${s3UploadQueue.length} updated JSON(s) to S3 bucket '${bucketName}'...`);
-        for (const item of s3UploadQueue) {
-          try {
-            await uploadPatentToS3(s3Client, bucketName, item.key, item.data);
-            totalS3Uploaded++;
-          } catch (upErr) {
-            console.error(`    [!] Failed S3 re-upload for ${item.key}: ${upErr.message}`);
-          }
-        }
-        console.log(`    [+] S3 Batch Upload finished.`);
-      } else if (!enableS3Upload) {
-        console.log(`    [*] S3 Re-upload is DISABLED (ENABLE_S3_UPLOAD=false). Skipping S3 upload.`);
-      }
+      totalEsIndexed += chunkEsCount;
+      totalS3Uploaded += chunkS3Count;
     }
 
     console.log(`\n=================================================`);
