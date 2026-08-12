@@ -4,6 +4,15 @@ import {
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { fileURLToPath } from "url";
+import path from "path";
+import fs from "fs";
+import readline from "readline";
+import dotenv from "dotenv";
+import { execSync } from "child_process";
+import { checkForHelp } from "../help.js";
+
+// Check if help was requested before executing the main script
+checkForHelp("get-patents");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

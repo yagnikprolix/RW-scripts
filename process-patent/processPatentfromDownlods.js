@@ -5,6 +5,10 @@ import path from "path";
 import AdmZip from "adm-zip";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import { checkForHelp } from "../help.js";
+
+// Check if help was requested before executing the main script
+checkForHelp("process");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

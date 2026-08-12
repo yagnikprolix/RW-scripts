@@ -2,6 +2,10 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import AdmZip from "adm-zip";
+import { checkForHelp } from "../help.js";
+
+// Check if help was requested before executing the main script
+checkForHelp("structure");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
