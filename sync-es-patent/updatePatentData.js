@@ -122,5 +122,22 @@ export function updatePatentData(jsonData, patentId) {
     jsonData.PNWK = transformPatentCombinations(jsonData.PNWK, pnc, false, pkc);
   }
 
+  // Special case for PNC=US and PKC=S and PN_B starting with USD
+  const pnb = jsonData.PN_B || "";
+  if (pnc === "US" && pkc === "S" && pnb.toUpperCase().startsWith("USD")) {
+    // e.g. PN_B: USD1004245S -> USD + 0 + 1004245 -> USD01004245
+    const match = pnb.match(/^USD(\d+)/i);
+    if (match) {
+      const paddedVal = `USD0${match[1]}`;
+      if (!Array.isArray(jsonData.PNW)) {
+        jsonData.PNW = [];
+      }
+      const uniqueValues = new Set(jsonData.PNW.map((v) => (typeof v === "string" ? v.toUpperCase() : v)));
+      if (!uniqueValues.has(paddedVal.toUpperCase())) {
+        jsonData.PNW.push(paddedVal);
+      }
+    }
+  }
+
   return jsonData;
 }
