@@ -5,6 +5,10 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { checkForHelp } from "../help.js";
+
+// Check if help was requested before executing the main script
+checkForHelp("export-es");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -14,6 +14,10 @@ import { pipeline } from "stream/promises";
 import { fileURLToPath } from "url";
 import { Readable } from "stream";
 import { updatePatentData } from "./updatePatentData.js";
+import { checkForHelp } from "../help.js";
+
+// Check if help was requested before executing the main script
+checkForHelp("sync-es");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
