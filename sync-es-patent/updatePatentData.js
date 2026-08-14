@@ -128,13 +128,35 @@ export function updatePatentData(jsonData, patentId) {
     // e.g. PN_B: USD1004245S -> USD + 0 + 1004245 -> USD01004245
     const match = pnb.match(/^USD(\d+)/i);
     if (match) {
-      const paddedVal = `USD0${match[1]}`;
+      const digits = match[1];
+      const paddedPnwUsd = `USD0${digits}`;
+      const paddedPnwD = `D0${digits}`;
+
+      // Update PNW
       if (!Array.isArray(jsonData.PNW)) {
         jsonData.PNW = [];
       }
-      const uniqueValues = new Set(jsonData.PNW.map((v) => (typeof v === "string" ? v.toUpperCase() : v)));
-      if (!uniqueValues.has(paddedVal.toUpperCase())) {
-        jsonData.PNW.push(paddedVal);
+      const uniquePnw = new Set(jsonData.PNW.map((v) => (typeof v === "string" ? v.toUpperCase() : v)));
+      if (!uniquePnw.has(paddedPnwUsd.toUpperCase())) {
+        jsonData.PNW.push(paddedPnwUsd);
+      }
+      if (!uniquePnw.has(paddedPnwD.toUpperCase())) {
+        jsonData.PNW.push(paddedPnwD);
+      }
+
+      // Update PNWK (with Kindcode PKC "S" / suffix "S")
+      const paddedPnwkUsd = `${paddedPnwUsd}${pkc}`; // USD01004245S
+      const paddedPnwkD = `${paddedPnwD}${pkc}`;     // D01004245S
+
+      if (!Array.isArray(jsonData.PNWK)) {
+        jsonData.PNWK = [];
+      }
+      const uniquePnwk = new Set(jsonData.PNWK.map((v) => (typeof v === "string" ? v.toUpperCase() : v)));
+      if (!uniquePnwk.has(paddedPnwkUsd.toUpperCase())) {
+        jsonData.PNWK.push(paddedPnwkUsd);
+      }
+      if (!uniquePnwk.has(paddedPnwkD.toUpperCase())) {
+        jsonData.PNWK.push(paddedPnwkD);
       }
     }
   }
