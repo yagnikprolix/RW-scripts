@@ -36,10 +36,10 @@ ${GREEN}3. Structure Patent Directory Hierarchy${RESET}
    ${DIM}Output Folder:${RESET}${MAGENTA}process-patent/structured_patent/${RESET}
 `,
   "sync-es": `
-${GREEN}4. Batch S3 Fetch, Field Update & ES Sync${RESET}
+${GREEN}4. Batch S3 Fetch, Field Update, ES Sync & MinIO Upload${RESET}
    ${BOLD}Command:${RESET}      ${YELLOW}npm run sync-es${RESET}
-   ${DIM}Description:${RESET}  Fetches patent JSONs from S3 in batches, updates fields via updatePatentData.js,
-                 bulk-indexes into Elasticsearch, and re-uploads to S3.
+   ${DIM}Description:${RESET}  Fetches patent JSONs from AWS S3 in batches, updates fields via updatePatentData.js,
+                 bulk-indexes into Elasticsearch, and uploads to MinIO bucket with folder structure.
    ${DIM}Input Folder:${RESET} ${MAGENTA}sync-es-patent/txt/*.txt${RESET}
    ${DIM}Config File:${RESET}  ${MAGENTA}sync-es-patent/updatePatentData.js${RESET}
 `,
@@ -68,8 +68,9 @@ ${COMMAND_HELP["export-es"]}
 ------------------------------------------------------------------------
 ${BOLD}ENVIRONMENT CONFIGURATION (.env):${RESET}
    ${DIM}AWS Settings:${RESET}           AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, AWS_BUCKET_NAME, AWS_ENDPOINT
+   ${DIM}MinIO Settings:${RESET}         MINIO_ENDPOINT, MINIO_BUCKET_NAME, MINIO_ACCESS_KEY_ID, MINIO_SECRET_ACCESS_KEY, MINIO_REGION
    ${DIM}Elasticsearch Settings:${RESET} ELASTICSEARCH_NODE, ELASTICSEARCH_INDEX, ELASTICSEARCH_USERNAME, ELASTICSEARCH_PASSWORD
-   ${DIM}Control Flags:${RESET}          ENABLE_S3_UPLOAD, ENABLE_ES_INDEX, DEBUG_LOG_UPDATED_FIELDS, PROGRESS_INTERVAL, BATCH_SIZE
+   ${DIM}Control Flags:${RESET}          ENABLE_S3_UPLOAD, ENABLE_MINIO_UPLOAD, ENABLE_ES_INDEX, DEBUG_LOG_UPDATED_FIELDS, BATCH_SIZE
 
 ${BOLD}${CYAN}========================================================================${RESET}
 `);

@@ -43,19 +43,21 @@ const askQuestion = (query) => {
 };
 
 /**
- * Calculates S3 folder prefix based on patent ID naming pattern.
+ * Calculates S3 / MinIO folder prefix based on patent ID naming pattern.
  */
 const calculatePrefix = (fileName) => {
+  const cleanName = fileName.endsWith(".json") ? fileName.slice(0, -5) : fileName;
+  const baseName = path.basename(cleanName);
   const regex =
     /^([A-Z]{2})([A-Z]{0,3})(\d{0,2})(\d{0,2})(\d{0,2})(\d{0,2})(\d{0,2})(\d{0,2})(\d{0,2})([a-zA-Z]{1}[a-zA-Z0-9]{0,2})$/;
-  if (!regex.test(fileName)) {
-    return `${fileName}.json`;
+  if (!regex.test(baseName)) {
+    return `${baseName}.json`;
   }
-  let x = fileName.split(regex).filter((i) => i);
+  let x = baseName.split(regex).filter((i) => i);
   const y = [...x.splice(0, 1), ...x.splice(-1, 1), ...x];
   y.splice(-1, 1);
 
-  return `${y.join("/")}/${fileName}.json`;
+  return `${y.join("/")}/${baseName}.json`;
 };
 
 /**
@@ -155,7 +157,7 @@ async function fetchPatentFromS3(s3Client, bucketName, target) {
 }
 
 /**
- * Uploads updated JSON document back to S3
+ * Uploads updated JSON document back to S3 / MinIO
  */
 async function uploadPatentToS3(s3Client, bucketName, key, jsonData) {
   const jsonString = JSON.stringify(jsonData, null, 2);
@@ -224,6 +226,7 @@ async function fetchBatchData(
 
   const esBatchDocs = [];
   const s3UploadQueue = [];
+  const minioUploadQueue = [];
   let fetchedCount = 0;
   let updatedCount = 0;
   let failedCount = 0;
@@ -249,10 +252,13 @@ async function fetchBatchData(
           if (updatedJson.PNWK) console.log(`      PNWK: `, JSON.stringify(updatedJson.PNWK));
         }
 
-        // Prepare ES Doc & S3 Upload item
+        // Prepare ES Doc, S3 Upload item & MinIO Upload item (with folder structure)
         const docId = updatedJson.patent_id || updatedJson.id || patentId;
+        const minioKey = calculatePrefix(patentId);
+
         esBatchDocs.push({ id: docId, body: updatedJson });
         s3UploadQueue.push({ key: resolvedKey, data: updatedJson });
+        minioUploadQueue.push({ key: minioKey, data: updatedJson });
 
         totals.processedCount++;
         if (totals.processedCount % progressInterval === 0 || totals.processedCount === patentListLength) {
@@ -278,6 +284,7 @@ async function fetchBatchData(
     currentBatch,
     esBatchDocs,
     s3UploadQueue,
+    minioUploadQueue,
     fetchedCount,
     updatedCount,
     failedCount,
@@ -286,7 +293,7 @@ async function fetchBatchData(
 
 /**
  * Splits batch docs into sub-chunks of max size `esBulkChunkSize`.
- * For each sub-chunk: bulk indexes into ES and instantly uploads to S3.
+ * For each sub-chunk: bulk indexes into ES, re-uploads to S3, and uploads to MinIO.
  */
 async function processBatchChunks(
   batchData,
@@ -294,16 +301,19 @@ async function processBatchChunks(
   esIndex,
   s3Client,
   bucketName,
+  minioClient,
+  minioBucketName,
   options
 ) {
-  const { batchNum, esBatchDocs, s3UploadQueue } = batchData;
-  const { enableEsIndex, enableS3Upload, esBulkChunkSize } = options;
+  const { batchNum, esBatchDocs, s3UploadQueue, minioUploadQueue } = batchData;
+  const { enableEsIndex, enableS3Upload, enableMinioUpload, esBulkChunkSize } = options;
 
   let totalEsIndexed = 0;
   let totalS3Uploaded = 0;
+  let totalMinioUploaded = 0;
 
   if (esBatchDocs.length === 0) {
-    return { totalEsIndexed, totalS3Uploaded };
+    return { totalEsIndexed, totalS3Uploaded, totalMinioUploaded };
   }
 
   const totalItems = esBatchDocs.length;
@@ -317,6 +327,7 @@ async function processBatchChunks(
 
     const esChunkDocs = esBatchDocs.slice(start, end);
     const s3ChunkQueue = s3UploadQueue.slice(start, end);
+    const minioChunkQueue = minioUploadQueue ? minioUploadQueue.slice(start, end) : [];
 
     console.log(`\n    [Batch ${batchNum} | Chunk ${cIdx + 1}/${chunkCount}] Processing ${esChunkDocs.length} patent(s)...`);
 
@@ -334,24 +345,40 @@ async function processBatchChunks(
       console.log(`      [*] ES Indexing is DISABLED (ENABLE_ES_INDEX=false). Skipping Elasticsearch indexing.`);
     }
 
-    // 2. Instantly re-upload updated JSONs for this chunk to S3
+    // 2. Instantly re-upload updated JSONs for this chunk to source S3
     if (enableS3Upload && s3ChunkQueue.length > 0) {
-      console.log(`      [*] Instantly re-uploading ${s3ChunkQueue.length} updated JSON(s) for Chunk ${cIdx + 1} to S3 bucket '${bucketName}'...`);
+      console.log(`      [*] Instantly re-uploading ${s3ChunkQueue.length} updated JSON(s) for Chunk ${cIdx + 1} to source S3 bucket '${bucketName}'...`);
       for (const item of s3ChunkQueue) {
         try {
           await uploadPatentToS3(s3Client, bucketName, item.key, item.data);
           totalS3Uploaded++;
         } catch (upErr) {
-          console.error(`      [!] Failed S3 re-upload for ${item.key}: ${upErr.message}`);
+          console.error(`      [!] Failed source S3 re-upload for ${item.key}: ${upErr.message}`);
         }
       }
-      console.log(`      [+] S3 Chunk ${cIdx + 1} Upload finished.`);
+      console.log(`      [+] Source S3 Chunk ${cIdx + 1} Upload finished.`);
     } else if (!enableS3Upload) {
-      console.log(`      [*] S3 Re-upload is DISABLED (ENABLE_S3_UPLOAD=false). Skipping S3 upload.`);
+      console.log(`      [*] Source S3 Re-upload is DISABLED (ENABLE_S3_UPLOAD=false). Skipping source S3 upload.`);
+    }
+
+    // 3. Upload updated JSONs for this chunk to MinIO setup bucket (with folder structure)
+    if (enableMinioUpload && minioClient && minioChunkQueue.length > 0) {
+      console.log(`      [*] Uploading ${minioChunkQueue.length} updated JSON(s) for Chunk ${cIdx + 1} to MinIO bucket '${minioBucketName}' (with folder structure)...`);
+      for (const item of minioChunkQueue) {
+        try {
+          await uploadPatentToS3(minioClient, minioBucketName, item.key, item.data);
+          totalMinioUploaded++;
+        } catch (upErr) {
+          console.error(`      [!] Failed MinIO upload for ${item.key}: ${upErr.message}`);
+        }
+      }
+      console.log(`      [+] MinIO Chunk ${cIdx + 1} Upload finished.`);
+    } else if (!enableMinioUpload) {
+      console.log(`      [*] MinIO Upload is DISABLED (ENABLE_MINIO_UPLOAD=false). Skipping MinIO upload.`);
     }
   }
 
-  return { totalEsIndexed, totalS3Uploaded };
+  return { totalEsIndexed, totalS3Uploaded, totalMinioUploaded };
 }
 
 async function main() {
@@ -384,7 +411,40 @@ async function main() {
   }
   const s3Client = new S3Client(s3Config);
 
-  // 2. Elasticsearch Client Initialization
+  // 2. MinIO Configuration (Target Bucket with folder structure)
+  const enableMinioUpload = process.env.ENABLE_MINIO_UPLOAD === "true";
+  let minioClient = null;
+  let minioBucketName = process.env.MINIO_BUCKET_NAME;
+
+  if (enableMinioUpload) {
+    let minioEndpoint = process.env.MINIO_ENDPOINT;
+    let minioAccessKeyId = process.env.MINIO_ACCESS_KEY_ID || accessKeyId;
+    let minioSecretAccessKey = process.env.MINIO_SECRET_ACCESS_KEY || secretAccessKey;
+    let minioRegion = process.env.MINIO_REGION || region || "us-east-1";
+
+    if (!minioEndpoint) {
+      minioEndpoint = await askQuestion("Enter MinIO Endpoint (e.g. http://localhost:9000): ");
+    }
+    if (!minioBucketName) {
+      minioBucketName = await askQuestion("Enter MinIO Bucket Name: ");
+    }
+
+    const minioConfig = {
+      region: minioRegion,
+      endpoint: minioEndpoint,
+      forcePathStyle: true,
+    };
+    if (minioAccessKeyId && minioSecretAccessKey) {
+      minioConfig.credentials = {
+        accessKeyId: minioAccessKeyId,
+        secretAccessKey: minioSecretAccessKey,
+      };
+    }
+    minioClient = new S3Client(minioConfig);
+    console.log(`[+] Connected MinIO Client target endpoint: ${minioEndpoint} (Bucket: ${minioBucketName})`);
+  }
+
+  // 3. Elasticsearch Client Initialization
   const esNode = process.env.ELASTICSEARCH_NODE || "http://localhost:9200";
   const esIndex = process.env.ELASTICSEARCH_INDEX || "patents";
   let esClient = null;
@@ -411,7 +471,7 @@ async function main() {
     console.warn(`[!] Warning: Failed to initialize ES Client (${esErr.message}). ES Indexing will be skipped.`);
   }
 
-  // 3. Batching & Concurrency Config from .env
+  // 4. Batching & Concurrency Config from .env
   const batchSize = parseInt(process.env.BATCH_SIZE || "20", 10);
   const concurrencyLimit = parseInt(process.env.CONCURRENCY_LIMIT || "10", 10);
   const progressInterval = Math.max(1, parseInt(process.env.PROGRESS_INTERVAL || "10", 10));
@@ -422,13 +482,14 @@ async function main() {
 
   console.log(`[*] Configured Batch Size: ${batchSize} patents/batch`);
   console.log(`[*] Configured Concurrency Limit: ${concurrencyLimit} parallel workers`);
-  console.log(`[*] ES Bulk Chunk Size: ${esBulkChunkSize} docs/chunk (ES index & S3 upload)`);
+  console.log(`[*] ES Bulk Chunk Size: ${esBulkChunkSize} docs/chunk (ES index & S3/MinIO upload)`);
   console.log(`[*] Progress Log Interval: Every ${progressInterval} patent(s)`);
-  console.log(`[*] S3 Re-upload Enabled: ${enableS3Upload}`);
-  console.log(`[*] ES Indexing Enabled:  ${enableEsIndex}`);
-  console.log(`[*] Debug Logging Enabled: ${debugLogFields}`);
+  console.log(`[*] Source S3 Re-upload Enabled: ${enableS3Upload}`);
+  console.log(`[*] MinIO Bucket Upload Enabled: ${enableMinioUpload}`);
+  console.log(`[*] ES Indexing Enabled:         ${enableEsIndex}`);
+  console.log(`[*] Debug Logging Enabled:       ${debugLogFields}`);
 
-  // 4. Scan 'txt/' directory for patent list files
+  // 5. Scan 'txt/' directory for patent list files
   const txtDir = path.join(__dirname, "txt");
   if (!fs.existsSync(txtDir)) {
     fs.mkdirSync(txtDir, { recursive: true });
@@ -480,6 +541,7 @@ async function main() {
     let totalUpdated = 0;
     let totalEsIndexed = 0;
     let totalS3Uploaded = 0;
+    let totalMinioUploaded = 0;
     let totalFailed = 0;
 
     const totals = { processedCount: 0 };
@@ -489,6 +551,7 @@ async function main() {
       debugLogFields,
       enableEsIndex,
       enableS3Upload,
+      enableMinioUpload,
       esBulkChunkSize,
     };
 
@@ -531,30 +594,34 @@ async function main() {
         nextFetchPromise = null;
       }
 
-      // 3. Process ES indexing & S3 upload in sub-chunks for current batch
-      const { totalEsIndexed: chunkEsCount, totalS3Uploaded: chunkS3Count } =
+      // 3. Process ES indexing, source S3 upload & MinIO upload in sub-chunks for current batch
+      const { totalEsIndexed: chunkEsCount, totalS3Uploaded: chunkS3Count, totalMinioUploaded: chunkMinioCount } =
         await processBatchChunks(
           currentBatchData,
           esClient,
           esIndex,
           s3Client,
           bucketName,
+          minioClient,
+          minioBucketName,
           options
         );
 
       totalEsIndexed += chunkEsCount;
       totalS3Uploaded += chunkS3Count;
+      totalMinioUploaded += chunkMinioCount;
     }
 
     console.log(`\n=================================================`);
     console.log(`       SUMMARY FOR ${txtFile}`);
     console.log(`=================================================`);
-    console.log(`Total Requested:    ${patentList.length}`);
-    console.log(`Fetched from S3:    ${totalS3Fetched}`);
-    console.log(`Fields Updated:     ${totalUpdated}`);
-    console.log(`Indexed in ES:      ${totalEsIndexed}`);
-    console.log(`Re-uploaded to S3:  ${totalS3Uploaded}`);
-    console.log(`Failed Items:       ${totalFailed}`);
+    console.log(`Total Requested:      ${patentList.length}`);
+    console.log(`Fetched from AWS S3:  ${totalS3Fetched}`);
+    console.log(`Fields Updated:       ${totalUpdated}`);
+    console.log(`Indexed in ES:        ${totalEsIndexed}`);
+    console.log(`Re-uploaded AWS S3:   ${totalS3Uploaded}`);
+    console.log(`Uploaded to MinIO:    ${totalMinioUploaded}`);
+    console.log(`Failed Items:         ${totalFailed}`);
     console.log(`=================================================\n`);
   }
 }
