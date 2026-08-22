@@ -9,6 +9,7 @@ import fs from "fs";
 import readline from "readline";
 import dotenv from "dotenv";
 import { execSync } from "child_process";
+import { pipeline } from "stream/promises";
 import { checkForHelp } from "../help.js";
 
 // Check if help was requested before executing the main script
@@ -289,33 +290,64 @@ async function main() {
   console.log("       S3 PATENT JSON DOWNLOADER         ");
   console.log("=========================================\n");
 
-  // 1. Gather AWS Configuration (optional credentials; falls back to EC2 IAM role)
-  let accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-  let secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  // 1. Gather AWS / MinIO Configuration
+  const useMinio =
+    process.argv.includes("--minio") ||
+    process.env.USE_MINIO === "true" ||
+    (process.env.MINIO_ENDPOINT && !process.env.AWS_ACCESS_KEY_ID);
 
-  let region = process.env.AWS_REGION;
+  let accessKeyId = useMinio
+    ? (process.env.MINIO_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID)
+    : process.env.AWS_ACCESS_KEY_ID;
+  let secretAccessKey = useMinio
+    ? (process.env.MINIO_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY)
+    : process.env.AWS_SECRET_ACCESS_KEY;
+
+  let region = useMinio
+    ? (process.env.MINIO_REGION || process.env.AWS_REGION)
+    : process.env.AWS_REGION;
   if (!region) {
-    region = await askQuestion("Enter AWS Region [ap-south-1]: ");
+    region = await askQuestion(
+      useMinio ? "Enter MinIO Region [ap-south-1]: " : "Enter AWS Region [ap-south-1]: "
+    );
     region = region || "ap-south-1";
   }
 
-  let bucketName = process.env.AWS_BUCKET_NAME;
+  let bucketName = useMinio
+    ? (process.env.MINIO_BUCKET_NAME || process.env.AWS_BUCKET_NAME)
+    : process.env.AWS_BUCKET_NAME;
   if (!bucketName) {
-    bucketName = await askQuestion("Enter S3 Bucket Name: ");
+    bucketName = await askQuestion(
+      useMinio ? "Enter MinIO Bucket Name: " : "Enter S3 Bucket Name: "
+    );
     if (!bucketName) {
-      console.error("Error: S3 Bucket Name is required.");
+      console.error(
+        useMinio ? "Error: MinIO Bucket Name is required." : "Error: S3 Bucket Name is required."
+      );
       process.exit(1);
     }
   }
 
-  console.log("\nInitializing S3 Client...");
-  const endpoint = process.env.AWS_ENDPOINT;
+  const endpoint = useMinio
+    ? (process.env.MINIO_ENDPOINT || process.env.AWS_ENDPOINT)
+    : process.env.AWS_ENDPOINT;
+
+  if (useMinio) {
+    console.log(`\nInitializing MinIO Client (Endpoint: ${endpoint || "default"}, Bucket: ${bucketName})...`);
+  } else {
+    console.log(`\nInitializing S3 Client (Endpoint: ${endpoint || "default"}, Bucket: ${bucketName})...`);
+  }
+
   const s3Config = { region };
 
   if (accessKeyId && secretAccessKey) {
     s3Config.credentials = { accessKeyId, secretAccessKey };
   } else {
-    console.log("[*] AWS explicit credentials omitted. Using default AWS credential provider chain / EC2 IAM role.");
+    console.log(
+      useMinio
+        ? "[*] MinIO explicit credentials omitted. Using default AWS credential provider chain / EC2 IAM role."
+        : "[*] AWS explicit credentials omitted. Using default AWS credential provider chain / EC2 IAM role."
+    );
   }
 
   if (endpoint) {
@@ -329,18 +361,30 @@ async function main() {
     fs.mkdirSync(downloadsDir, { recursive: true });
   }
 
-  const csvDir = path.join(__dirname, "csv");
+  let csvDir = path.join(__dirname, "csv");
   if (!fs.existsSync(csvDir)) {
     fs.mkdirSync(csvDir, { recursive: true });
   }
 
-  // Scan the 'csv' directory for .csv files
+  const rootCsvDir = path.join(rootDir, "csv");
+  
+  // Helper to check if a directory has any .csv files
+  const hasCsvFiles = (dir) => {
+    return fs.existsSync(dir) && fs.readdirSync(dir).some((file) => file.toLowerCase().endsWith(".csv"));
+  };
+
+  // Fallback to the root csv/ directory if process-patent/csv/ does not have CSVs but the root does
+  if (!hasCsvFiles(csvDir) && hasCsvFiles(rootCsvDir)) {
+    csvDir = rootCsvDir;
+  }
+
+  // Scan the selected 'csv' directory for .csv files
   const csvFiles = fs.existsSync(csvDir)
     ? fs.readdirSync(csvDir).filter((file) => file.toLowerCase().endsWith(".csv"))
     : [];
 
   if (csvFiles.length === 0) {
-    console.error(`Error: No CSV files found in the 'csv' directory: ${csvDir}`);
+    console.error(`Error: No CSV files found in the 'csv' directories: ${csvDir} or ${rootCsvDir}`);
     console.error("Please place your CSV files in the 'csv' directory and try again.");
     process.exit(1);
   }
