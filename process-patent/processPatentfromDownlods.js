@@ -5,6 +5,7 @@ import path from "path";
 import AdmZip from "adm-zip";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import os from "os";
 import { checkForHelp } from "../help.js";
 
 // Check if help was requested before executing the main script
@@ -704,11 +705,46 @@ function main() {
   if (!fs.existsSync(csvPath)) {
     csvPath = path.join(__dirname, "field.csv");
   }
-  const outputDir = path.join(__dirname, "processed_patent");
+  let outputDir = path.join(__dirname, "processed_patent");
   const shortcodePath = path.join(rootDir, "shortcode.json");
+
+  // Test if outputDir is writable
+  let isOutputWritable = false;
+  try {
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+    const testFile = path.join(outputDir, `.write_test_${Date.now()}`);
+    fs.writeFileSync(testFile, "test");
+    fs.unlinkSync(testFile);
+    isOutputWritable = true;
+  } catch (err) {
+    isOutputWritable = false;
+  }
+
+  if (!isOutputWritable) {
+    const fallbackDir = path.join(os.tmpdir(), "rw-scripts-processed");
+    console.warn(`\n======================================================================`);
+    console.warn(`[WARNING] Permission denied to write in the output directory:`);
+    console.warn(`  ${outputDir}`);
+    console.warn(`Falling back to system temporary directory:`);
+    console.warn(`  ${fallbackDir}`);
+    console.warn(`======================================================================\n`);
+    
+    outputDir = fallbackDir;
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+  }
 
   // Configure the directories to check for zip files (using 'downloads' as primary)
   const inputDirs = [path.join(__dirname, "downloads")];
+
+  // If fallback downloads directory exists in tmp, scan there too
+  const fallbackDownloads = path.join(os.tmpdir(), "rw-scripts-downloads");
+  if (fs.existsSync(fallbackDownloads)) {
+    inputDirs.push(fallbackDownloads);
+  }
 
   // If 'downloads' is present in the sibling 'getpatent' folder (AWS setup fallback)
   const siblingDownloads = path.join(rootDir, "../getpatent/downloads");
