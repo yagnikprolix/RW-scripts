@@ -10,6 +10,7 @@ import readline from "readline";
 import dotenv from "dotenv";
 import { execSync } from "child_process";
 import { pipeline } from "stream/promises";
+import os from "os";
 import { checkForHelp } from "../help.js";
 
 // Check if help was requested before executing the main script
@@ -356,9 +357,36 @@ async function main() {
   }
   const s3Client = new S3Client(s3Config);
 
-  const downloadsDir = path.join(__dirname, "downloads");
-  if (!fs.existsSync(downloadsDir)) {
-    fs.mkdirSync(downloadsDir, { recursive: true });
+  let downloadsDir = path.join(__dirname, "downloads");
+  let isDownloadsWritable = false;
+  try {
+    if (!fs.existsSync(downloadsDir)) {
+      fs.mkdirSync(downloadsDir, { recursive: true });
+    }
+    // Test write access
+    const testFile = path.join(downloadsDir, `.write_test_${Date.now()}`);
+    fs.writeFileSync(testFile, "test");
+    fs.unlinkSync(testFile);
+    isDownloadsWritable = true;
+  } catch (err) {
+    isDownloadsWritable = false;
+  }
+
+  if (!isDownloadsWritable) {
+    const fallbackDir = path.join(os.tmpdir(), "rw-scripts-downloads");
+    console.warn(`\n======================================================================`);
+    console.warn(`[WARNING] Permission denied to write in the downloads directory:`);
+    console.warn(`  ${downloadsDir}`);
+    console.warn(`To fix this permanently, please run the following command in terminal:`);
+    console.warn(`  sudo chown -R $(whoami) "${downloadsDir}"`);
+    console.warn(`Falling back to system temporary directory:`);
+    console.warn(`  ${fallbackDir}`);
+    console.warn(`======================================================================\n`);
+    
+    downloadsDir = fallbackDir;
+    if (!fs.existsSync(downloadsDir)) {
+      fs.mkdirSync(downloadsDir, { recursive: true });
+    }
   }
 
   let csvDir = path.join(__dirname, "csv");
