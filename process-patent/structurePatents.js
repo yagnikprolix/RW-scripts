@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import AdmZip from "adm-zip";
+import os from "os";
 import { checkForHelp } from "../help.js";
 
 // Check if help was requested before executing the main script
@@ -12,8 +13,8 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 
 // Define input and output paths
-const downloadsDir = path.join(__dirname, "downloads");
-const outputDir = path.join(__dirname, "structured_patent");
+let downloadsDir = path.join(__dirname, "downloads");
+let outputDir = path.join(__dirname, "structured_patent");
 
 /**
  * Calculates the structured path for a patent file based on its filename pattern.
@@ -51,16 +52,64 @@ function main() {
   console.log("      PATENT DIRECTORY STRUCTURER        ");
   console.log("=========================================\n");
 
+  let isDownloadsWritable = false;
+  try {
+    if (!fs.existsSync(downloadsDir)) {
+      fs.mkdirSync(downloadsDir, { recursive: true });
+    }
+    const testFile = path.join(downloadsDir, `.write_test_${Date.now()}`);
+    fs.writeFileSync(testFile, "test");
+    fs.unlinkSync(testFile);
+    isDownloadsWritable = true;
+  } catch (err) {
+    isDownloadsWritable = false;
+  }
+
+  const fallbackDownloads = path.join(os.tmpdir(), "rw-scripts-downloads");
+  const hasFiles = (dir) => {
+    return fs.existsSync(dir) && fs.readdirSync(dir).some(f => !f.startsWith('.'));
+  };
+
+  if (!isDownloadsWritable || (!hasFiles(downloadsDir) && hasFiles(fallbackDownloads))) {
+    if (fs.existsSync(fallbackDownloads)) {
+      console.log(`[*] Using fallback downloads directory: ${fallbackDownloads}`);
+      downloadsDir = fallbackDownloads;
+    }
+  }
+
   if (!fs.existsSync(downloadsDir)) {
     console.error(`[-] Input directory not found: ${downloadsDir}`);
     console.error("Please ensure the 'downloads' directory exists and contains files/zips.");
     process.exit(1);
   }
 
-  // Create the output directory if it doesn't exist
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-    console.log(`[+] Created output directory: ${outputDir}`);
+  // Create the output directory if it doesn't exist or verify it is writable
+  let isOutputWritable = false;
+  try {
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+    const testFile = path.join(outputDir, `.write_test_${Date.now()}`);
+    fs.writeFileSync(testFile, "test");
+    fs.unlinkSync(testFile);
+    isOutputWritable = true;
+  } catch (err) {
+    isOutputWritable = false;
+  }
+
+  if (!isOutputWritable) {
+    const fallbackDir = path.join(os.tmpdir(), "rw-scripts-structured");
+    console.warn(`\n======================================================================`);
+    console.warn(`[WARNING] Permission denied to write in the output directory:`);
+    console.warn(`  ${outputDir}`);
+    console.warn(`Falling back to system temporary directory:`);
+    console.warn(`  ${fallbackDir}`);
+    console.warn(`======================================================================\n`);
+    
+    outputDir = fallbackDir;
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
   }
 
   // Scan downloads directory for files
