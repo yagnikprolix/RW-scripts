@@ -3,6 +3,7 @@ import {
   ListObjectsV2Command,
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
+import { pipeline } from "stream/promises";
 import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs";
