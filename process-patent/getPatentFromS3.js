@@ -10,7 +10,6 @@ import fs from "fs";
 import readline from "readline";
 import dotenv from "dotenv";
 import { execSync } from "child_process";
-import { pipeline } from "stream/promises";
 import os from "os";
 import { checkForHelp } from "../help.js";
 
@@ -293,10 +292,15 @@ async function main() {
   console.log("=========================================\n");
 
   // 1. Gather AWS / MinIO Configuration
+  const forceAws =
+    process.argv.includes("--s3") ||
+    process.argv.includes("--aws") ||
+    process.env.USE_MINIO === "false";
+
   const useMinio =
-    process.argv.includes("--minio") ||
-    process.env.USE_MINIO === "true" ||
-    (process.env.MINIO_ENDPOINT && !process.env.AWS_ACCESS_KEY_ID);
+    !forceAws &&
+    (process.argv.includes("--minio") ||
+      process.env.USE_MINIO === "true");
 
   let accessKeyId = useMinio
     ? (process.env.MINIO_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID)
@@ -465,13 +469,19 @@ async function main() {
 
     // ZIP the downloads folder
     const zipPath = path.join(downloadsDir, `${csvBaseName}.zip`);
-    console.log(`\nPackaging downloaded files into single ZIP archive: ${zipPath}...`);
-    try {
-      execSync(`zip -rj "${zipPath}" "${targetDownloadDir}"`, { stdio: 'ignore' });
-      // Delete the temporary folder
+    if (successCount === 0) {
+      console.log(`\nNo files were downloaded. Skipping ZIP archive creation.`);
+      // Clean up empty directory
       fs.rmSync(targetDownloadDir, { recursive: true, force: true });
-    } catch (zipErr) {
-      console.error(`Error zipping downloads: ${zipErr.message}`);
+    } else {
+      console.log(`\nPackaging downloaded files into single ZIP archive: ${zipPath}...`);
+      try {
+        execSync(`zip -rj "${zipPath}" "${targetDownloadDir}"`, { stdio: 'ignore' });
+        // Delete the temporary folder
+        fs.rmSync(targetDownloadDir, { recursive: true, force: true });
+      } catch (zipErr) {
+        console.error(`Error zipping downloads: ${zipErr.message}`);
+      }
     }
 
     console.log("\n=========================================");
@@ -480,7 +490,9 @@ async function main() {
     console.log(`Total requested:  ${keysToDownload.length}`);
     console.log(`Successfully:     ${successCount}`);
     console.log(`Failed:           ${failCount}`);
-    console.log(`Saved ZIP to:     ${zipPath}`);
+    if (successCount > 0) {
+      console.log(`Saved ZIP to:     ${zipPath}`);
+    }
     console.log("=========================================");
   }
 }

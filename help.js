@@ -16,8 +16,8 @@ export const DIM = "\x1b[2m";
 export const COMMAND_HELP = {
   "get-patents": `
 ${GREEN}1. Download Patents from S3${RESET}
-   ${BOLD}Command:${RESET}      ${YELLOW}npm run get-patents${RESET}
-   ${DIM}Description:${RESET}  Downloads raw patent JSON files from AWS S3 based on CSV lists.
+   ${BOLD}Command:${RESET}      ${YELLOW}npm run get-patents${RESET} (or ${YELLOW}node process-patent/getPatentFromS3.js [--s3|--minio]${RESET})
+   ${DIM}Description:${RESET}  Downloads raw patent JSON files from AWS S3 (default) or MinIO based on CSV lists.
    ${DIM}Input Folder:${RESET} ${MAGENTA}process-patent/csv/*.csv${RESET}
    ${DIM}Output Folder:${RESET}${MAGENTA}process-patent/downloads/*.zip${RESET}
 `,
